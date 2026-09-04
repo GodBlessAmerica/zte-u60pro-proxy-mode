@@ -16,6 +16,7 @@ cp "$SRC/bin/proxy-mode" "$DST/bin/proxy-mode"
 cp "$SRC/scripts/preflight.sh" "$DST/scripts/preflight.sh"
 cp "$SRC/scripts/start.sh" "$DST/scripts/start.sh"
 cp "$SRC/scripts/stop.sh" "$DST/scripts/stop.sh"
+cp "$SRC/scripts/install-sing-box.sh" "$DST/scripts/install-sing-box.sh"
 chmod 755 "$DST/bin/proxy-mode" "$DST/scripts"/*.sh
 
 cp "$SRC/web/index.html" "$WEBROOT/index.html"
@@ -45,15 +46,14 @@ CGI API: $CGIROOT/proxy-api
 Web control token:
 $(cat "$DST/runtime/web.token")
 
-Keep this token private. The browser stores it locally after the first control action.
+Keep this token private. Do not paste it into issue reports or public logs.
 
 Next steps:
-  1) place an aarch64 sing-box binary at /data/proxy-mode/bin/sing-box
-  2) chmod 755 /data/proxy-mode/bin/sing-box
-  3) create /data/proxy-mode/configs/modeN.json
-  4) run /data/proxy-mode/bin/proxy-mode preflight
-  5) run /data/proxy-mode/bin/proxy-mode use N
-  6) run /data/proxy-mode/bin/proxy-mode start
+  1) /data/proxy-mode/scripts/install-sing-box.sh
+  2) create /data/proxy-mode/configs/modeN.json
+  3) /data/proxy-mode/bin/proxy-mode preflight
+  4) /data/proxy-mode/bin/proxy-mode use N
+  5) /data/proxy-mode/bin/proxy-mode start
 
 If the isolated OpenUI uhttpd is already running on :8080, open:
   http://10.66.0.1:8080/proxy-mode/
