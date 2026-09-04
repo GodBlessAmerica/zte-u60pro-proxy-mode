@@ -1,0 +1,92 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-remote",
+        "server": "223.5.5.5",
+        "server_port": 443,
+        "path": "/dns-query",
+        "tls": {
+          "enabled": true,
+          "server_name": "dns.alidns.com"
+        },
+        "detour": "mode5-ssh"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "redirect",
+      "tag": "tproxy-in",
+      "listen": "0.0.0.0",
+      "listen_port": 7893
+    },
+    {
+      "type": "direct",
+      "tag": "dns4-proxy-in",
+      "listen": "0.0.0.0",
+      "listen_port": 5353,
+      "override_address": "1.1.1.1",
+      "override_port": 53
+    },
+    {
+      "type": "direct",
+      "tag": "dns6-proxy-in",
+      "listen": "::",
+      "listen_port": 5354,
+      "override_address": "1.1.1.1",
+      "override_port": 53
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "ssh",
+      "tag": "mode5-ssh",
+      "server": "SSH_SERVER_IP",
+      "server_port": 22,
+      "user": "SSH_USER",
+      "private_key_path": "/data/proxy-mode/keys/ssh_key"
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "inbound": [
+          "dns4-proxy-in",
+          "dns6-proxy-in"
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "outbound": "direct"
+      },
+      {
+        "network": "udp",
+        "port": 123,
+        "action": "route",
+        "outbound": "direct"
+      },
+      {
+        "network": "udp",
+        "action": "reject",
+        "method": "drop"
+      }
+    ],
+    "final": "mode5-ssh"
+  }
+}
