@@ -19,6 +19,21 @@ valid_ipv4() {
     echo "$1" | awk -F. 'NF==4 {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i<0 || $i>255) exit 1; exit 0} {exit 1}'
 }
 
+valid_mac() {
+    echo "$1" | grep -Eiq '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'
+}
+
+normalize_selector() {
+    value="$1"
+    if valid_ipv4 "$value"; then
+        printf 'ip:%s\n' "$value"
+    elif valid_mac "$value"; then
+        printf 'mac:%s\n' "$(echo "$value" | tr 'A-F' 'a-f')"
+    else
+        return 1
+    fi
+}
+
 remove_line() {
     file="$1" value="$2"
     tmp="$file.tmp"
@@ -46,6 +61,18 @@ base_chain() {
     iptables -t nat -A "$CHAIN" -d 127.0.0.0/8 -j RETURN
 }
 
+append_match_rule() {
+    list_action="$1" selector="$2"
+    kind="${selector%%:*}"
+    value="${selector#*:}"
+    case "$kind:$list_action" in
+        ip:return) iptables -t nat -A "$CHAIN" -s "$value/32" -j RETURN ;;
+        mac:return) iptables -t nat -A "$CHAIN" -m mac --mac-source "$value" -j RETURN ;;
+        ip:proxy) iptables -t nat -A "$CHAIN" -s "$value/32" -p tcp -j REDIRECT --to-ports "$PORT" ;;
+        mac:proxy) iptables -t nat -A "$CHAIN" -m mac --mac-source "$value" -p tcp -j REDIRECT --to-ports "$PORT" ;;
+    esac
+}
+
 apply_rules() {
     mode="$(cat "$MODE_FILE" 2>/dev/null || echo off)"
     clear_rules
@@ -54,16 +81,16 @@ apply_rules() {
     base_chain
     case "$mode" in
         all)
-            while IFS= read -r ip; do
-                [ -n "$ip" ] || continue
-                iptables -t nat -A "$CHAIN" -s "$ip/32" -j RETURN
+            while IFS= read -r selector; do
+                [ -n "$selector" ] || continue
+                append_match_rule return "$selector"
             done < "$DIRECT_LIST"
             iptables -t nat -A "$CHAIN" -p tcp -j REDIRECT --to-ports "$PORT"
             ;;
         selective)
-            while IFS= read -r ip; do
-                [ -n "$ip" ] || continue
-                iptables -t nat -A "$CHAIN" -s "$ip/32" -p tcp -j REDIRECT --to-ports "$PORT"
+            while IFS= read -r selector; do
+                [ -n "$selector" ] || continue
+                append_match_rule proxy "$selector"
             done < "$PROXY_LIST"
             ;;
         *)
@@ -100,27 +127,27 @@ case "$cmd" in
         echo "traffic proxy set to selective mode"
         ;;
     device)
-        [ $# -eq 3 ] || { echo "usage: traffic.sh device <ip> proxy|direct" >&2; exit 2; }
-        ip="$2"; action="$3"
-        valid_ipv4 "$ip" || { echo "invalid IPv4 address: $ip" >&2; exit 2; }
+        [ $# -eq 3 ] || { echo "usage: traffic.sh device <ip|mac> proxy|direct" >&2; exit 2; }
+        selector="$(normalize_selector "$2")" || { echo "invalid device selector: $2" >&2; exit 2; }
+        action="$3"
         mode="$(cat "$MODE_FILE" 2>/dev/null || echo off)"
         case "$action" in
             proxy)
-                remove_line "$DIRECT_LIST" "$ip"
-                add_line "$PROXY_LIST" "$ip"
-                if [ "$mode" = off ]; then echo selective > "$MODE_FILE"; fi
+                remove_line "$DIRECT_LIST" "$selector"
+                add_line "$PROXY_LIST" "$selector"
+                [ "$mode" != off ] || echo selective > "$MODE_FILE"
                 ;;
             direct)
-                remove_line "$PROXY_LIST" "$ip"
-                add_line "$DIRECT_LIST" "$ip"
+                remove_line "$PROXY_LIST" "$selector"
+                add_line "$DIRECT_LIST" "$selector"
                 ;;
             *) echo "action must be proxy or direct" >&2; exit 2 ;;
         esac
         apply_rules
-        echo "$ip => $action"
+        echo "$selector => $action"
         ;;
     status) status ;;
     apply) apply_rules ;;
     clear) clear_rules ;;
-    *) echo "usage: traffic.sh on|off|selective|device <ip> proxy|direct|status|apply|clear" >&2; exit 2 ;;
+    *) echo "usage: traffic.sh on|off|selective|device <ip|mac> proxy|direct|status|apply|clear" >&2; exit 2 ;;
 esac
