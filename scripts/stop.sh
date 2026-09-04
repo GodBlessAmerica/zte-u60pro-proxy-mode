@@ -3,6 +3,9 @@ set -eu
 
 BASE=/data/proxy-mode
 PID="$BASE/runtime/sing-box.pid"
+TRAFFIC="$BASE/scripts/traffic.sh"
+
+[ -x "$TRAFFIC" ] && "$TRAFFIC" clear || true
 
 if [ ! -f "$PID" ]; then
     echo "sing-box not running"
