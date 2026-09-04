@@ -38,29 +38,43 @@ actual="$(sha256sum "$PKG" | awk '{print $1}')"
 [ "$actual" = "$SHA256" ] || fail "SHA256 mismatch: $actual"
 ok "package SHA256 verified"
 
-(
-    cd "$TMP/pkg"
-    tar -xf "$PKG"
-)
+# OpenWrt .ipk files are ar archives. Some vendor systems do not expose /usr/bin/ar,
+# so support both a standalone ar binary and the BusyBox ar applet.
+if command -v ar >/dev/null 2>&1; then
+    (
+        cd "$TMP/pkg"
+        ar x "$PKG"
+    ) || fail "failed to unpack IPK with ar"
+elif command -v busybox >/dev/null 2>&1 && busybox --list 2>/dev/null | grep -qx ar; then
+    (
+        cd "$TMP/pkg"
+        busybox ar x "$PKG"
+    ) || fail "failed to unpack IPK with busybox ar"
+else
+    fail "IPK is an ar archive but this device has no ar applet; run: command -v ar; busybox --list | grep '^ar$'"
+fi
 
 DATA=""
-for f in "$TMP/pkg"/data.tar.gz "$TMP/pkg"/data.tar.xz "$TMP/pkg"/data.tar; do
+for f in "$TMP/pkg"/data.tar.gz "$TMP/pkg"/data.tar.xz "$TMP/pkg"/data.tar "$TMP/pkg"/data.tar.zst; do
     [ -f "$f" ] && DATA="$f" && break
 done
-
-if [ -z "$DATA" ] && [ -f "$TMP/pkg/data.tar.zst" ]; then
-    if tar --help 2>&1 | grep -qi zstd; then
-        DATA="$TMP/pkg/data.tar.zst"
-    elif command -v zstd >/dev/null 2>&1; then
-        zstd -dc "$TMP/pkg/data.tar.zst" > "$TMP/pkg/data.tar"
-        DATA="$TMP/pkg/data.tar"
-    else
-        fail "package uses data.tar.zst but this device cannot decompress zstd"
-    fi
-fi
 [ -n "$DATA" ] || fail "data archive not found in IPK"
 
-tar -xf "$DATA" -C "$TMP/root"
+case "$DATA" in
+    *.zst)
+        if tar --help 2>&1 | grep -qi zstd; then
+            tar -xf "$DATA" -C "$TMP/root"
+        elif command -v zstd >/dev/null 2>&1; then
+            zstd -dc "$DATA" | tar -xf - -C "$TMP/root"
+        else
+            fail "package uses data.tar.zst but this device cannot decompress zstd"
+        fi
+        ;;
+    *)
+        tar -xf "$DATA" -C "$TMP/root"
+        ;;
+esac
+
 [ -f "$TMP/root/usr/bin/sing-box" ] || fail "usr/bin/sing-box not found in package"
 cp "$TMP/root/usr/bin/sing-box" "$BASE/bin/sing-box.new"
 chmod 755 "$BASE/bin/sing-box.new"
