@@ -41,24 +41,25 @@ fi
 
 cat <<EOF
 Installed project files under $DST.
-Dashboard files: $WEBROOT
-CGI API: $CGIROOT/proxy-api
+Legacy dashboard assets: $WEBROOT
+Legacy CGI API: $CGIROOT/proxy-api
 
-Web control token:
-$(cat "$DST/runtime/web.token")
-
-Keep this token private. Do not paste it into issue reports or public logs.
+A private web control token exists at:
+  $DST/runtime/web.token
+Do not paste it into issue reports, chat logs, screenshots, or public documentation.
 
 Next steps:
-  1) install or place sing-box at /data/proxy-mode/bin/sing-box
-  2) create /data/proxy-mode/configs/modeN.json
+  1) place sing-box at /data/proxy-mode/bin/sing-box
+  2) create a private /data/proxy-mode/configs/modeN.json
   3) /data/proxy-mode/bin/proxy-mode preflight
-  4) /data/proxy-mode/bin/proxy-mode use N
-  5) /data/proxy-mode/bin/proxy-mode start
-  6) /data/proxy-mode/bin/proxy-mode traffic on|off|selective
+  4) /data/proxy-mode/bin/proxy-mode start N
+  5) /data/proxy-mode/bin/proxy-mode traffic on|off|selective
+  6) optionally set per-device policy with:
+       /data/proxy-mode/bin/proxy-mode device <mac> proxy|direct
 
-If the isolated OpenUI uhttpd is already running on :8080, open:
-  http://10.66.0.1:8080/proxy-mode/
-
-This installer never changes rc.local, the stock ZTE web UI, or firmware partitions. Transparent proxy rules are isolated in the U60PM_REDIRECT chain and can be removed with 'proxy-mode traffic off' or 'proxy-mode stop'.
+This installer does not modify rc.local, firmware partitions, or the stock ZTE web UI on ports 80/443.
+Transparent proxy and leak-protection rules use dedicated U60PM_* chains and can be removed with:
+  /data/proxy-mode/bin/proxy-mode traffic off
+or:
+  /data/proxy-mode/bin/proxy-mode stop
 EOF
