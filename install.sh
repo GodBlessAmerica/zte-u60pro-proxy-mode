@@ -9,7 +9,7 @@ CGIROOT=/data/www/cgi-bin
 [ "$(id -u)" = "0" ] || { echo "run as root" >&2; exit 1; }
 [ -w /data ] || { echo "/data is not writable" >&2; exit 1; }
 
-mkdir -p "$DST/bin" "$DST/configs" "$DST/logs" "$DST/runtime" "$DST/scripts"
+mkdir -p "$DST/bin" "$DST/configs" "$DST/logs" "$DST/runtime" "$DST/scripts" "$DST/keys"
 mkdir -p "$WEBROOT" "$CGIROOT"
 
 cp "$SRC/bin/proxy-mode" "$DST/bin/proxy-mode"
@@ -17,8 +17,11 @@ cp "$SRC/scripts/preflight.sh" "$DST/scripts/preflight.sh"
 cp "$SRC/scripts/start.sh" "$DST/scripts/start.sh"
 cp "$SRC/scripts/stop.sh" "$DST/scripts/stop.sh"
 cp "$SRC/scripts/traffic.sh" "$DST/scripts/traffic.sh"
+cp "$SRC/scripts/guard-control.sh" "$DST/scripts/guard-control.sh"
+cp "$SRC/scripts/log-guard.sh" "$DST/scripts/log-guard.sh"
 cp "$SRC/scripts/install-sing-box.sh" "$DST/scripts/install-sing-box.sh"
 chmod 755 "$DST/bin/proxy-mode" "$DST/scripts"/*.sh
+chmod 700 "$DST/keys"
 
 cp "$SRC/web/index.html" "$WEBROOT/index.html"
 cp "$SRC/web/app.js" "$WEBROOT/app.js"
@@ -56,6 +59,9 @@ Next steps:
   5) /data/proxy-mode/bin/proxy-mode traffic on|off|selective
   6) optionally set per-device policy with:
        /data/proxy-mode/bin/proxy-mode device <mac> proxy|direct
+  7) optional leak-guard controls:
+       /data/proxy-mode/bin/proxy-mode guard udp strict|off
+       /data/proxy-mode/bin/proxy-mode guard ipv6 strict|off
 
 This installer does not modify rc.local, firmware partitions, or the stock ZTE web UI on ports 80/443.
 Transparent proxy and leak-protection rules use dedicated U60PM_* chains and can be removed with:
