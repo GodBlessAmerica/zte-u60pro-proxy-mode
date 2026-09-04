@@ -8,6 +8,7 @@ START="$ROOT_DIR/scripts/start.sh"
 STOP="$ROOT_DIR/scripts/stop.sh"
 PREFLIGHT="$ROOT_DIR/scripts/preflight.sh"
 TRAFFIC="$ROOT_DIR/scripts/traffic.sh"
+GUARD="$ROOT_DIR/scripts/guard-control.sh"
 
 usage() {
     cat <<'EOF'
@@ -22,7 +23,14 @@ Usage:
   proxy-mode check [number]
   proxy-mode traffic on|off|selective|status
   proxy-mode device <ip|mac> proxy|direct
+  proxy-mode guard status
+  proxy-mode guard udp strict|off
+  proxy-mode guard ipv6 strict|off
 EOF
+}
+
+apply_guard() {
+    [ -x "$GUARD" ] && "$GUARD" apply || true
 }
 
 status() {
@@ -37,6 +45,7 @@ status() {
     echo "lan=br-lan"
     echo "wan=rmnet_data0"
     [ -x "$TRAFFIC" ] && "$TRAFFIC" status || true
+    [ -x "$GUARD" ] && "$GUARD" status || true
 }
 
 list_modes() {
@@ -72,10 +81,9 @@ case "$cmd" in
         ;;
     start)
         [ $# -le 2 ] || { usage; exit 2; }
-        if [ $# -eq 2 ]; then
-            use_mode "$2"
-        fi
+        if [ $# -eq 2 ]; then use_mode "$2"; fi
         "$START"
+        apply_guard
         ;;
     stop)
         [ $# -eq 1 ] || { usage; exit 2; }
@@ -84,10 +92,9 @@ case "$cmd" in
     restart)
         [ $# -le 2 ] || { usage; exit 2; }
         "$STOP"
-        if [ $# -eq 2 ]; then
-            use_mode "$2"
-        fi
+        if [ $# -eq 2 ]; then use_mode "$2"; fi
         "$START"
+        apply_guard
         ;;
     check)
         if [ $# -eq 2 ]; then "$BASE/bin/sing-box" check -c "$BASE/configs/mode$2.json";
@@ -96,10 +103,20 @@ case "$cmd" in
     traffic)
         [ $# -eq 2 ] || { usage; exit 2; }
         "$TRAFFIC" "$2"
+        apply_guard
         ;;
     device)
         [ $# -eq 3 ] || { usage; exit 2; }
         "$TRAFFIC" device "$2" "$3"
+        apply_guard
+        ;;
+    guard)
+        [ -x "$GUARD" ] || { echo "guard-control.sh missing" >&2; exit 1; }
+        case "${2:-}" in
+            status) [ $# -eq 2 ] || { usage; exit 2; }; "$GUARD" status ;;
+            udp|ipv6) [ $# -eq 3 ] || { usage; exit 2; }; "$GUARD" "$2" "$3" ;;
+            *) usage; exit 2 ;;
+        esac
         ;;
     *) usage; exit 2 ;;
 esac
