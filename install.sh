@@ -16,6 +16,7 @@ cp "$SRC/bin/proxy-mode" "$DST/bin/proxy-mode"
 cp "$SRC/scripts/preflight.sh" "$DST/scripts/preflight.sh"
 cp "$SRC/scripts/start.sh" "$DST/scripts/start.sh"
 cp "$SRC/scripts/stop.sh" "$DST/scripts/stop.sh"
+cp "$SRC/scripts/traffic.sh" "$DST/scripts/traffic.sh"
 cp "$SRC/scripts/install-sing-box.sh" "$DST/scripts/install-sing-box.sh"
 chmod 755 "$DST/bin/proxy-mode" "$DST/scripts"/*.sh
 
@@ -49,14 +50,15 @@ $(cat "$DST/runtime/web.token")
 Keep this token private. Do not paste it into issue reports or public logs.
 
 Next steps:
-  1) /data/proxy-mode/scripts/install-sing-box.sh
+  1) install or place sing-box at /data/proxy-mode/bin/sing-box
   2) create /data/proxy-mode/configs/modeN.json
   3) /data/proxy-mode/bin/proxy-mode preflight
   4) /data/proxy-mode/bin/proxy-mode use N
   5) /data/proxy-mode/bin/proxy-mode start
+  6) /data/proxy-mode/bin/proxy-mode traffic on|off|selective
 
 If the isolated OpenUI uhttpd is already running on :8080, open:
   http://10.66.0.1:8080/proxy-mode/
 
-This installer does not change iptables, rc.local, the stock ZTE web UI, or firmware partitions.
+This installer never changes rc.local, the stock ZTE web UI, or firmware partitions. Transparent proxy rules are isolated in the U60PM_REDIRECT chain and can be removed with 'proxy-mode traffic off' or 'proxy-mode stop'.
 EOF
