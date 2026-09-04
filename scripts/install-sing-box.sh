@@ -19,14 +19,19 @@ rm -rf "$TMP"
 mkdir -p "$TMP/pkg" "$TMP/root"
 
 PKG="$TMP/$ARCHIVE"
-if command -v wget >/dev/null 2>&1; then
-    echo "Downloading sing-box v$VERSION..."
-    wget -O "$PKG" "$URL" || fail "download failed; copy $ARCHIVE to $PKG and rerun with U60_SINGBOX_IPK=/path/to/file"
-elif command -v curl >/dev/null 2>&1; then
-    echo "Downloading sing-box v$VERSION..."
-    curl -fL "$URL" -o "$PKG" || fail "download failed"
+if [ -n "${U60_SINGBOX_IPK:-}" ]; then
+    [ -f "$U60_SINGBOX_IPK" ] || fail "local package not found: $U60_SINGBOX_IPK"
+    echo "Using local package: $U60_SINGBOX_IPK"
+    cp "$U60_SINGBOX_IPK" "$PKG"
 else
-    fail "wget/curl missing"
+    echo "Downloading sing-box v$VERSION..."
+    if command -v wget >/dev/null 2>&1; then
+        wget -4 -T 30 -O "$PKG" "$URL" || fail "download failed; copy $ARCHIVE to the router and run: U60_SINGBOX_IPK=/path/to/$ARCHIVE $0"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -4 --connect-timeout 20 --max-time 120 -fL "$URL" -o "$PKG" || fail "download failed"
+    else
+        fail "wget/curl missing"
+    fi
 fi
 
 actual="$(sha256sum "$PKG" | awk '{print $1}')"
