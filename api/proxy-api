@@ -1,0 +1,69 @@
+#!/bin/sh
+
+BASE=/data/proxy-mode
+CLI="$BASE/bin/proxy-mode"
+TOKEN_FILE="$BASE/runtime/web.token"
+
+json_header() {
+    printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
+}
+
+json_error() {
+    code="$1"; msg="$2"
+    printf 'Status: %s\r\n' "$code"
+    json_header
+    printf '{"ok":false,"error":"%s"}\n' "$msg"
+    exit 0
+}
+
+require_token() {
+    [ -f "$TOKEN_FILE" ] || json_error '503 Service Unavailable' 'web token is not configured'
+    expected="$(cat "$TOKEN_FILE" 2>/dev/null)"
+    supplied="${HTTP_X_PROXY_TOKEN:-}"
+    [ -n "$expected" ] && [ "$supplied" = "$expected" ] || json_error '403 Forbidden' 'invalid token'
+}
+
+status_json() {
+    state=stopped; mode=unconfigured; pid=none
+    if [ -f "$BASE/runtime/sing-box.pid" ]; then
+        p="$(cat "$BASE/runtime/sing-box.pid" 2>/dev/null)"
+        if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then state=running; pid="$p"; fi
+    fi
+    [ -f "$BASE/runtime/current_mode" ] && mode="$(cat "$BASE/runtime/current_mode" 2>/dev/null)"
+    json_header
+    printf '{"ok":true,"state":"%s","mode":"%s","pid":"%s","lan":"br-lan","wan":"rmnet_data0"}\n' "$state" "$mode" "$pid"
+}
+
+path="${PATH_INFO:-/status}"
+method="${REQUEST_METHOD:-GET}"
+
+case "$path" in
+    /status)
+        [ "$method" = GET ] || json_error '405 Method Not Allowed' 'GET required'
+        status_json
+        ;;
+    /start|/stop|/restart)
+        [ "$method" = POST ] || json_error '405 Method Not Allowed' 'POST required'
+        require_token
+        action="${path#/}"
+        if output="$($CLI "$action" 2>&1)"; then
+            json_header
+            printf '{"ok":true,"message":"%s"}\n' "$(printf '%s' "$output" | tr '\n' ' ' | sed 's/"/\\"/g')"
+        else
+            json_error '500 Internal Server Error' 'proxy command failed'
+        fi
+        ;;
+    /use)
+        [ "$method" = POST ] || json_error '405 Method Not Allowed' 'POST required'
+        require_token
+        mode="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/^mode=\([0-9][0-9]*\)$/\1/p')"
+        [ -n "$mode" ] || json_error '400 Bad Request' 'numeric mode required'
+        if output="$($CLI use "$mode" 2>&1)"; then
+            json_header
+            printf '{"ok":true,"message":"%s"}\n' "$(printf '%s' "$output" | tr '\n' ' ' | sed 's/"/\\"/g')"
+        else
+            json_error '500 Internal Server Error' 'mode switch failed'
+        fi
+        ;;
+    *) json_error '404 Not Found' 'unknown endpoint' ;;
+esac
