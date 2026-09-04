@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+BASE=/data/proxy-mode
+SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT_DIR="$(dirname "$SELF_DIR")"
+START="$ROOT_DIR/scripts/start.sh"
+STOP="$ROOT_DIR/scripts/stop.sh"
+PREFLIGHT="$ROOT_DIR/scripts/preflight.sh"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  proxy-mode status
+  proxy-mode preflight
+  proxy-mode list
+  proxy-mode use <number>
+  proxy-mode start
+  proxy-mode stop
+  proxy-mode restart
+  proxy-mode check [number]
+EOF
+}
+
+status() {
+    pid=""
+    [ -f "$BASE/runtime/sing-box.pid" ] && pid="$(cat "$BASE/runtime/sing-box.pid" 2>/dev/null || true)"
+    mode="unconfigured"
+    [ -f "$BASE/runtime/current_mode" ] && mode="$(cat "$BASE/runtime/current_mode" 2>/dev/null || true)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then state="running"; else state="stopped"; fi
+    echo "state=$state"
+    echo "mode=$mode"
+    echo "pid=${pid:-none}"
+    echo "lan=br-lan"
+    echo "wan=rmnet_data0"
+}
+
+list_modes() {
+    found=0
+    for f in "$BASE"/configs/mode*.json; do
+        [ -f "$f" ] || continue
+        found=1
+        basename "$f"
+    done
+    [ "$found" -eq 1 ] || echo "no modes"
+}
+
+use_mode() {
+    n="$1"
+    case "$n" in ''|*[!0-9]*) echo "mode must be numeric" >&2; exit 2;; esac
+    src="$BASE/configs/mode${n}.json"
+    [ -f "$src" ] || { echo "mode not found: $src" >&2; exit 1; }
+    "$BASE/bin/sing-box" check -c "$src"
+    cp "$src" "$BASE/runtime/active.json.tmp"
+    mv "$BASE/runtime/active.json.tmp" "$BASE/runtime/active.json"
+    echo "$n" > "$BASE/runtime/current_mode"
+    echo "mode $n selected"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+    status) status ;;
+    preflight) "$PREFLIGHT" ;;
+    list) list_modes ;;
+    use) [ $# -eq 2 ] || { usage; exit 2; }; use_mode "$2" ;;
+    start) "$START" ;;
+    stop) "$STOP" ;;
+    restart) "$STOP"; "$START" ;;
+    check)
+        if [ $# -eq 2 ]; then "$BASE/bin/sing-box" check -c "$BASE/configs/mode$2.json";
+        else "$BASE/bin/sing-box" check -c "$BASE/runtime/active.json"; fi
+        ;;
+    *) usage; exit 2 ;;
+esac
