@@ -7,6 +7,7 @@ ROOT_DIR="$(dirname "$SELF_DIR")"
 START="$ROOT_DIR/scripts/start.sh"
 STOP="$ROOT_DIR/scripts/stop.sh"
 PREFLIGHT="$ROOT_DIR/scripts/preflight.sh"
+TRAFFIC="$ROOT_DIR/scripts/traffic.sh"
 
 usage() {
     cat <<'EOF'
@@ -19,6 +20,8 @@ Usage:
   proxy-mode stop
   proxy-mode restart
   proxy-mode check [number]
+  proxy-mode traffic on|off|selective|status
+  proxy-mode device <ip|mac> proxy|direct
 EOF
 }
 
@@ -33,6 +36,7 @@ status() {
     echo "pid=${pid:-none}"
     echo "lan=br-lan"
     echo "wan=rmnet_data0"
+    [ -x "$TRAFFIC" ] && "$TRAFFIC" status || true
 }
 
 list_modes() {
@@ -69,6 +73,14 @@ case "$cmd" in
     check)
         if [ $# -eq 2 ]; then "$BASE/bin/sing-box" check -c "$BASE/configs/mode$2.json";
         else "$BASE/bin/sing-box" check -c "$BASE/runtime/active.json"; fi
+        ;;
+    traffic)
+        [ $# -eq 2 ] || { usage; exit 2; }
+        "$TRAFFIC" "$2"
+        ;;
+    device)
+        [ $# -eq 3 ] || { usage; exit 2; }
+        "$TRAFFIC" device "$2" "$3"
         ;;
     *) usage; exit 2 ;;
 esac
