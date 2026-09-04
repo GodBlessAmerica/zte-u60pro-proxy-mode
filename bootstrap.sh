@@ -11,8 +11,8 @@ fetch() {
     mkdir -p "$(dirname "$dst")"
 
     if command -v wget >/dev/null 2>&1; then
-        # Vendor wget can hang on IPv6/redirect paths. Force IPv4 and bound retries/timeouts.
-        wget -4 -T 15 -t 2 -O "$dst" "$src" || fail "download failed: $src"
+        # ZTE vendor wget supports -4 and -T, but not the usual -t retry option.
+        wget -4 -T 15 -O "$dst" "$src" || fail "download failed: $src"
     elif command -v curl >/dev/null 2>&1; then
         curl -4 --connect-timeout 15 --max-time 30 --retry 1 -fsSL "$src" -o "$dst" || fail "download failed: $src"
     else
