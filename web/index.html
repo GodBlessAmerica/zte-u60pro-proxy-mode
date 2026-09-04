@@ -18,25 +18,36 @@
 
     <section class="grid">
       <article class="card"><span>Mode</span><strong id="mode">—</strong></article>
+      <article class="card"><span>Traffic</span><strong id="trafficMode">—</strong></article>
       <article class="card"><span>WAN</span><strong id="wan">rmnet_data0</strong></article>
       <article class="card"><span>LAN</span><strong id="lan">br-lan</strong></article>
-      <article class="card"><span>PID</span><strong id="pid">—</strong></article>
     </section>
 
     <section class="panel">
-      <h2>Control</h2>
+      <h2>Global control</h2>
       <div class="actions">
-        <button data-action="start">Start</button>
-        <button data-action="stop">Stop</button>
-        <button data-action="restart">Restart</button>
+        <button data-action="start">Start engine</button>
+        <button data-action="stop">Stop engine</button>
+        <button data-traffic="on">Proxy all</button>
+        <button data-traffic="off">Direct all</button>
+        <button data-traffic="selective">Per-device</button>
         <button id="refresh">Refresh</button>
       </div>
       <p id="message" class="message">Waiting for proxy API.</p>
     </section>
 
     <section class="panel">
-      <h2>Safety</h2>
-      <p>This dashboard is designed for the isolated U60 Pro management service. It does not replace the stock ZTE web UI and must not expose write actions without local authentication.</p>
+      <div class="panel-head">
+        <h2>Connected devices</h2>
+        <button id="refreshClients">Refresh devices</button>
+      </div>
+      <div id="clients" class="clients"><p class="message">No device data yet.</p></div>
+      <p class="message">Device rules use the client MAC address, so they survive DHCP address changes.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Current scope</h2>
+      <p>Transparent interception currently covers TCP through sing-box REDIRECT. UDP/QUIC and IPv6 policy are separate work and are not silently forced here.</p>
     </section>
   </main>
   <script src="app.js"></script>
