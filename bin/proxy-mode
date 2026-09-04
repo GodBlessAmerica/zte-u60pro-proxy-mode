@@ -16,9 +16,9 @@ Usage:
   proxy-mode preflight
   proxy-mode list
   proxy-mode use <number>
-  proxy-mode start
+  proxy-mode start [number]
   proxy-mode stop
-  proxy-mode restart
+  proxy-mode restart [number]
   proxy-mode check [number]
   proxy-mode traffic on|off|selective|status
   proxy-mode device <ip|mac> proxy|direct
@@ -66,10 +66,29 @@ case "$cmd" in
     status) status ;;
     preflight) "$PREFLIGHT" ;;
     list) list_modes ;;
-    use) [ $# -eq 2 ] || { usage; exit 2; }; use_mode "$2" ;;
-    start) "$START" ;;
-    stop) "$STOP" ;;
-    restart) "$STOP"; "$START" ;;
+    use)
+        [ $# -eq 2 ] || { usage; exit 2; }
+        use_mode "$2"
+        ;;
+    start)
+        [ $# -le 2 ] || { usage; exit 2; }
+        if [ $# -eq 2 ]; then
+            use_mode "$2"
+        fi
+        "$START"
+        ;;
+    stop)
+        [ $# -eq 1 ] || { usage; exit 2; }
+        "$STOP"
+        ;;
+    restart)
+        [ $# -le 2 ] || { usage; exit 2; }
+        "$STOP"
+        if [ $# -eq 2 ]; then
+            use_mode "$2"
+        fi
+        "$START"
+        ;;
     check)
         if [ $# -eq 2 ]; then "$BASE/bin/sing-box" check -c "$BASE/configs/mode$2.json";
         else "$BASE/bin/sing-box" check -c "$BASE/runtime/active.json"; fi
