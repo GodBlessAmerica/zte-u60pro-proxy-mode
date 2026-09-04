@@ -23,6 +23,15 @@ require_token() {
     [ -n "$expected" ] && [ "$supplied" = "$expected" ] || json_error '403 Forbidden' 'invalid token'
 }
 
+qparam() {
+    key="$1"
+    printf '%s' "${QUERY_STRING:-}" | tr '&' '\n' | sed -n "s/^${key}=//p" | head -n1 | sed 's/%3A/:/g;s/%3a/:/g'
+}
+
+traffic_mode() {
+    [ -f "$BASE/runtime/traffic_mode" ] && cat "$BASE/runtime/traffic_mode" || printf off
+}
+
 status_json() {
     state=stopped; mode=unconfigured; pid=none
     if [ -f "$BASE/runtime/sing-box.pid" ]; then
@@ -30,8 +39,21 @@ status_json() {
         if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then state=running; pid="$p"; fi
     fi
     [ -f "$BASE/runtime/current_mode" ] && mode="$(cat "$BASE/runtime/current_mode" 2>/dev/null)"
+    tm="$(traffic_mode)"
     json_header
-    printf '{"ok":true,"state":"%s","mode":"%s","pid":"%s","lan":"br-lan","wan":"rmnet_data0"}\n' "$state" "$mode" "$pid"
+    printf '{"ok":true,"state":"%s","mode":"%s","pid":"%s","lan":"br-lan","wan":"rmnet_data0","traffic_mode":"%s"}\n' "$state" "$mode" "$pid" "$tm"
+}
+
+clients_json() {
+    json_header
+    printf '{"ok":true,"clients":['
+    first=1
+    ip neigh show dev br-lan 2>/dev/null | awk 'NF>=5 && $1 ~ /^[0-9]+\./ && $5 ~ /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/ {print $1, tolower($5), $NF}' | while read -r ip mac state; do
+        [ "$first" -eq 1 ] || printf ','
+        first=0
+        printf '{"ip":"%s","mac":"%s","state":"%s"}' "$ip" "$mac" "$state"
+    done
+    printf ']}\n'
 }
 
 path="${PATH_INFO:-/status}"
@@ -41,6 +63,10 @@ case "$path" in
     /status)
         [ "$method" = GET ] || json_error '405 Method Not Allowed' 'GET required'
         status_json
+        ;;
+    /clients)
+        [ "$method" = GET ] || json_error '405 Method Not Allowed' 'GET required'
+        clients_json
         ;;
     /start|/stop|/restart)
         [ "$method" = POST ] || json_error '405 Method Not Allowed' 'POST required'
@@ -53,11 +79,37 @@ case "$path" in
             json_error '500 Internal Server Error' 'proxy command failed'
         fi
         ;;
+    /traffic)
+        [ "$method" = POST ] || json_error '405 Method Not Allowed' 'POST required'
+        require_token
+        action="$(qparam action)"
+        case "$action" in on|off|selective) ;; *) json_error '400 Bad Request' 'invalid traffic action' ;; esac
+        if output="$($CLI traffic "$action" 2>&1)"; then
+            json_header
+            printf '{"ok":true,"message":"%s"}\n' "$(printf '%s' "$output" | tr '\n' ' ' | sed 's/"/\\"/g')"
+        else
+            json_error '500 Internal Server Error' 'traffic command failed'
+        fi
+        ;;
+    /device)
+        [ "$method" = POST ] || json_error '405 Method Not Allowed' 'POST required'
+        require_token
+        selector="$(qparam selector)"
+        action="$(qparam action)"
+        [ -n "$selector" ] || json_error '400 Bad Request' 'device selector required'
+        case "$action" in proxy|direct) ;; *) json_error '400 Bad Request' 'invalid device action' ;; esac
+        if output="$($CLI device "$selector" "$action" 2>&1)"; then
+            json_header
+            printf '{"ok":true,"message":"%s"}\n' "$(printf '%s' "$output" | tr '\n' ' ' | sed 's/"/\\"/g')"
+        else
+            json_error '500 Internal Server Error' 'device command failed'
+        fi
+        ;;
     /use)
         [ "$method" = POST ] || json_error '405 Method Not Allowed' 'POST required'
         require_token
-        mode="$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/^mode=\([0-9][0-9]*\)$/\1/p')"
-        [ -n "$mode" ] || json_error '400 Bad Request' 'numeric mode required'
+        mode="$(qparam mode)"
+        echo "$mode" | grep -Eq '^[0-9]+$' || json_error '400 Bad Request' 'numeric mode required'
         if output="$($CLI use "$mode" 2>&1)"; then
             json_header
             printf '{"ok":true,"message":"%s"}\n' "$(printf '%s' "$output" | tr '\n' ' ' | sed 's/"/\\"/g')"
