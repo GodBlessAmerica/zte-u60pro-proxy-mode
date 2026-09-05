@@ -12,7 +12,7 @@ CHAIN=U60PM_UDP_TUN
 PROXY_LIST="$RUNTIME/proxy_devices"
 DIRECT_LIST="$RUNTIME/direct_devices"
 TRAFFIC_MODE="$RUNTIME/traffic_mode"
-STATE_FILE="$RUNTIME/full_proxy_udp"
+STATE_FILE="$RUNTIME/full_proxy_udp_tun"
 
 mkdir -p "$RUNTIME"
 [ -f "$STATE_FILE" ] || echo off > "$STATE_FILE"
@@ -92,11 +92,13 @@ apply_rules() {
         off)
             echo "traffic mode is off; UDP TUN not attached" >&2
             clear_rules
+            echo off > "$STATE_FILE"
             exit 1
             ;;
         *)
             echo "unsupported traffic mode: $mode" >&2
             clear_rules
+            echo off > "$STATE_FILE"
             exit 1
             ;;
     esac
@@ -113,7 +115,6 @@ apply_rules() {
 }
 
 status() {
-    state="$(cat "$STATE_FILE" 2>/dev/null || echo off)"
     tun=no
     [ -d "/sys/class/net/$TUN" ] && tun=yes
     chain=no
@@ -124,6 +125,15 @@ status() {
     ip route show table "$TABLE" 2>/dev/null | grep -q "default dev $TUN" && route=yes || true
     blackhole=no
     ip route show table "$TABLE" 2>/dev/null | grep -q "blackhole default" && blackhole=yes || true
+
+    # Live state wins over any stale runtime marker. This prevents the retired
+    # udp-tproxy helper from making the UI report OFF while the TUN path is up.
+    state=off
+    if [ "$tun" = yes ] && [ "$chain" = yes ] && [ "$rule" = yes ] && [ "$route" = yes ] && [ "$blackhole" = yes ]; then
+        state=on
+    fi
+
+    echo "$state" > "$STATE_FILE"
     echo "full_proxy_udp=$state"
     echo "udp_tun_interface=$TUN"
     echo "udp_tun_ready=$tun"
