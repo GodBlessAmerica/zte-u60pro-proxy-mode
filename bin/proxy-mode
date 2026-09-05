@@ -42,6 +42,12 @@ apply_guard() {
 
 apply_full_proxy() {
     [ -x "$UDP_TUN" ] || return 0
+
+    # First remove the abandoned TPROXY experiment. Both old and new helpers
+    # historically used runtime/full_proxy_udp, so cleanup must happen before
+    # enabling Mode 11 or it would overwrite the working TUN state back to off.
+    [ -x "$LEGACY_TPROXY" ] && "$LEGACY_TPROXY" off >/dev/null 2>&1 || true
+
     mode="$(current_mode)"
     if [ "$mode" = "11" ]; then
         # Guard is applied first. udp-tun.sh then inserts its marked-TUN
@@ -50,8 +56,6 @@ apply_full_proxy() {
     else
         "$UDP_TUN" off >/dev/null 2>&1 || true
     fi
-    # Never leave the abandoned TPROXY experiment attached.
-    [ -x "$LEGACY_TPROXY" ] && "$LEGACY_TPROXY" off >/dev/null 2>&1 || true
 }
 
 status() {
