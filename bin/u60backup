@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+TS="$(date +%Y%m%d-%H%M%S)"
+DST="/data/u60proxy-manual-backup-$TS"
+mkdir -p "$DST"
+[ -d /data/u60proxy ] && cp -a /data/u60proxy "$DST/u60proxy"
+mkdir -p "$DST/proxy-mode"
+[ -d /data/proxy-mode/configs ] && cp -a /data/proxy-mode/configs "$DST/proxy-mode/configs"
+[ -d /data/proxy-mode/runtime ] && cp -a /data/proxy-mode/runtime "$DST/proxy-mode/runtime"
+mkdir -p "$DST/proxy-mode/scripts"
+[ -f /data/proxy-mode/scripts/traffic.sh ] && cp /data/proxy-mode/scripts/traffic.sh "$DST/proxy-mode/scripts/traffic.sh"
+[ -f /data/proxy-mode/scripts/udp-tun.sh ] && cp /data/proxy-mode/scripts/udp-tun.sh "$DST/proxy-mode/scripts/udp-tun.sh"
+[ -f /etc/rc.local ] && cp /etc/rc.local "$DST/rc.local"
+[ -f /data/start-u60proxy-v2.sh ] && cp /data/start-u60proxy-v2.sh "$DST/start-u60proxy-v2.sh"
+echo "$DST" > /data/u60proxy-manual-backup-latest
+echo "Backup created: $DST"
+echo "WARNING: this local backup may contain private proxy/Wi-Fi credentials. Do not publish it."
