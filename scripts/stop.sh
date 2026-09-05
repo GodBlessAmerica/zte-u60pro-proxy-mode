@@ -4,7 +4,12 @@ set -eu
 BASE=/data/proxy-mode
 PID="$BASE/runtime/sing-box.pid"
 TRAFFIC="$BASE/scripts/traffic.sh"
+UDP_TUN="$BASE/scripts/udp-tun.sh"
+LEGACY_TPROXY="$BASE/scripts/udp-tproxy.sh"
 
+# Remove mode-specific UDP policy routing before traffic chains or the TUN vanish.
+[ -x "$UDP_TUN" ] && "$UDP_TUN" off >/dev/null 2>&1 || true
+[ -x "$LEGACY_TPROXY" ] && "$LEGACY_TPROXY" off >/dev/null 2>&1 || true
 [ -x "$TRAFFIC" ] && "$TRAFFIC" clear || true
 
 if [ ! -f "$PID" ]; then
