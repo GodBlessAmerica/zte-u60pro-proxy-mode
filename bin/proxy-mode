@@ -9,6 +9,8 @@ STOP="$ROOT_DIR/scripts/stop.sh"
 PREFLIGHT="$ROOT_DIR/scripts/preflight.sh"
 TRAFFIC="$ROOT_DIR/scripts/traffic.sh"
 GUARD="$ROOT_DIR/scripts/guard-control.sh"
+UDP_TUN="$ROOT_DIR/scripts/udp-tun.sh"
+LEGACY_TPROXY="$ROOT_DIR/scripts/udp-tproxy.sh"
 
 usage() {
     cat <<'EOF'
@@ -26,18 +28,36 @@ Usage:
   proxy-mode guard status
   proxy-mode guard udp strict|off
   proxy-mode guard ipv6 strict|off
+  proxy-mode fullproxy status|on|off
 EOF
+}
+
+current_mode() {
+    cat "$BASE/runtime/current_mode" 2>/dev/null || echo unconfigured
 }
 
 apply_guard() {
     [ -x "$GUARD" ] && "$GUARD" apply || true
 }
 
+apply_full_proxy() {
+    [ -x "$UDP_TUN" ] || return 0
+    mode="$(current_mode)"
+    if [ "$mode" = "11" ]; then
+        # Guard is applied first. udp-tun.sh then inserts its marked-TUN
+        # FORWARD accepts at the top, while table 167 has a blackhole fallback.
+        "$UDP_TUN" apply
+    else
+        "$UDP_TUN" off >/dev/null 2>&1 || true
+    fi
+    # Never leave the abandoned TPROXY experiment attached.
+    [ -x "$LEGACY_TPROXY" ] && "$LEGACY_TPROXY" off >/dev/null 2>&1 || true
+}
+
 status() {
     pid=""
     [ -f "$BASE/runtime/sing-box.pid" ] && pid="$(cat "$BASE/runtime/sing-box.pid" 2>/dev/null || true)"
-    mode="unconfigured"
-    [ -f "$BASE/runtime/current_mode" ] && mode="$(cat "$BASE/runtime/current_mode" 2>/dev/null || true)"
+    mode="$(current_mode)"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then state="running"; else state="stopped"; fi
     echo "state=$state"
     echo "mode=$mode"
@@ -46,6 +66,7 @@ status() {
     echo "wan=rmnet_data0"
     [ -x "$TRAFFIC" ] && "$TRAFFIC" status || true
     [ -x "$GUARD" ] && "$GUARD" status || true
+    [ -x "$UDP_TUN" ] && "$UDP_TUN" status || true
 }
 
 list_modes() {
@@ -70,6 +91,11 @@ use_mode() {
     echo "mode $n selected"
 }
 
+post_start() {
+    apply_guard
+    apply_full_proxy
+}
+
 cmd="${1:-}"
 case "$cmd" in
     status) status ;;
@@ -83,7 +109,7 @@ case "$cmd" in
         [ $# -le 2 ] || { usage; exit 2; }
         if [ $# -eq 2 ]; then use_mode "$2"; fi
         "$START"
-        apply_guard
+        post_start
         ;;
     stop)
         [ $# -eq 1 ] || { usage; exit 2; }
@@ -94,7 +120,7 @@ case "$cmd" in
         "$STOP"
         if [ $# -eq 2 ]; then use_mode "$2"; fi
         "$START"
-        apply_guard
+        post_start
         ;;
     check)
         if [ $# -eq 2 ]; then "$BASE/bin/sing-box" check -c "$BASE/configs/mode$2.json";
@@ -104,17 +130,32 @@ case "$cmd" in
         [ $# -eq 2 ] || { usage; exit 2; }
         "$TRAFFIC" "$2"
         apply_guard
+        apply_full_proxy
         ;;
     device)
         [ $# -eq 3 ] || { usage; exit 2; }
         "$TRAFFIC" device "$2" "$3"
         apply_guard
+        apply_full_proxy
         ;;
     guard)
         [ -x "$GUARD" ] || { echo "guard-control.sh missing" >&2; exit 1; }
         case "${2:-}" in
             status) [ $# -eq 2 ] || { usage; exit 2; }; "$GUARD" status ;;
-            udp|ipv6) [ $# -eq 3 ] || { usage; exit 2; }; "$GUARD" "$2" "$3" ;;
+            udp|ipv6)
+                [ $# -eq 3 ] || { usage; exit 2; }
+                "$GUARD" "$2" "$3"
+                apply_full_proxy
+                ;;
+            *) usage; exit 2 ;;
+        esac
+        ;;
+    fullproxy)
+        [ -x "$UDP_TUN" ] || { echo "udp-tun.sh missing" >&2; exit 1; }
+        case "${2:-}" in
+            status) [ $# -eq 2 ] || { usage; exit 2; }; "$UDP_TUN" status ;;
+            on|apply) [ $# -eq 2 ] || { usage; exit 2; }; "$UDP_TUN" apply ;;
+            off) [ $# -eq 2 ] || { usage; exit 2; }; "$UDP_TUN" off ;;
             *) usage; exit 2 ;;
         esac
         ;;
