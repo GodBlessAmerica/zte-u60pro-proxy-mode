@@ -88,7 +88,10 @@ setup_policy_route() {
 setup_input() {
     iptables -N "$INPUT_CHAIN" 2>/dev/null || true
     iptables -F "$INPUT_CHAIN"
-    iptables -A "$INPUT_CHAIN" -p udp --dport "$PORT" -j ACCEPT
+    # TPROXY preserves the packet's original destination address/port, so a
+    # filter rule matching --dport $PORT is incorrect here. Accept only UDP
+    # packets carrying our dedicated TPROXY fwmark from br-lan.
+    iptables -A "$INPUT_CHAIN" -p udp -m mark --mark "$MARK/$MASK" -j ACCEPT
     iptables -I INPUT 1 -i "$LAN" -j "$INPUT_CHAIN"
 }
 
@@ -136,11 +139,14 @@ status() {
     iptables -t mangle -C PREROUTING -i "$LAN" -j "$CHAIN" 2>/dev/null && chain=yes || true
     rule=no
     ip rule show 2>/dev/null | grep -q "fwmark 0x66.*lookup $TABLE\|fwmark 0x66.*lookup 166" && rule=yes || true
+    input=no
+    iptables -C "$INPUT_CHAIN" -p udp -m mark --mark "$MARK/$MASK" -j ACCEPT 2>/dev/null && input=yes || true
     echo "full_proxy_udp=$state"
     echo "udp_tproxy_port=$PORT"
     echo "udp_tproxy_listener=$listener"
     echo "udp_tproxy_chain=$chain"
     echo "udp_policy_rule=$rule"
+    echo "udp_input_mark_accept=$input"
 }
 
 preflight() {
