@@ -2,7 +2,7 @@
 
 `u60proxy` is a portable sing-box proxy manager for the ZTE U60 Pro / MU5250 family.
 
-Current stable release: **2.1.1** (Wi-Fi relay not included yet).
+Current stable release: **2.1.2** (Wi-Fi relay not included yet).
 
 This repository is intentionally separate from `GodBlessAmerica/openwrt-proxy-mode-suite`; U60 Pro specific work lives here.
 
@@ -52,26 +52,24 @@ http://10.66.0.1:8081/
 
 The stock ZTE web UI on ports 80/443 is not modified.
 
+## Mode JSON editor
+
+Version 2.1.2 adds an editor directly to the 8081 control panel for existing `/data/proxy-mode/configs/modeN.json` files. Before replacing a config, u60proxy validates JSON syntax, runs `sing-box check`, and creates a timestamped backup. The editor can also save and activate a mode in one step.
+
+Because mode JSON files can contain private server details, the 8081 panel should only be used on a trusted LAN until authentication is added.
+
 ## Install
 
 The release package contains the prebuilt ARM64 `u60proxy` binary and the validated installer.
 
 ```sh
 cd /tmp
-tar -xzf u60proxy-v2.1.1-final-no-relay.tar.gz
-cd u60proxy-v2.1.1-final
+tar -xzf u60proxy-v2.1.2-final-no-relay.tar.gz
+cd u60proxy-v2.1.2-final
 ./install.sh
 ```
 
 The installer backs up the existing control plane and data-plane adapter scripts before changing them. Existing private `modeN.json` files are preserved.
-
-For source builds:
-
-```sh
-./build-u60proxy.sh
-```
-
-This produces `bin/u60proxy` for Linux ARM64.
 
 ## CLI
 
@@ -110,7 +108,7 @@ On the tested vendor firmware, a custom procd service was not reliable at cold b
 - Do not modify firmware partitions or boot slots.
 - Keep the stock ZTE web service on 80/443 untouched.
 - Production mode configs and credentials must stay private.
-- Wi-Fi relay is intentionally excluded from 2.1.1 and will be developed separately.
+- Wi-Fi relay is intentionally excluded from 2.1.2 and will be developed separately.
 
 ## Secrets
 
