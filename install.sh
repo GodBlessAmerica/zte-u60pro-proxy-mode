@@ -18,6 +18,7 @@ cp "$SRC/scripts/start.sh" "$DST/scripts/start.sh"
 cp "$SRC/scripts/stop.sh" "$DST/scripts/stop.sh"
 cp "$SRC/scripts/traffic.sh" "$DST/scripts/traffic.sh"
 cp "$SRC/scripts/guard-control.sh" "$DST/scripts/guard-control.sh"
+cp "$SRC/scripts/udp-tproxy.sh" "$DST/scripts/udp-tproxy.sh"
 cp "$SRC/scripts/log-guard.sh" "$DST/scripts/log-guard.sh"
 cp "$SRC/scripts/install-sing-box.sh" "$DST/scripts/install-sing-box.sh"
 chmod 755 "$DST/bin/proxy-mode" "$DST/scripts"/*.sh
@@ -62,6 +63,10 @@ Next steps:
   7) optional leak-guard controls:
        /data/proxy-mode/bin/proxy-mode guard udp strict|off
        /data/proxy-mode/bin/proxy-mode guard ipv6 strict|off
+  8) experimental VLESS UDP full-proxy helper:
+       /data/proxy-mode/scripts/udp-tproxy.sh preflight
+       /data/proxy-mode/scripts/udp-tproxy.sh apply
+       /data/proxy-mode/scripts/udp-tproxy.sh off
 
 This installer does not modify rc.local, firmware partitions, or the stock ZTE web UI on ports 80/443.
 Transparent proxy and leak-protection rules use dedicated U60PM_* chains and can be removed with:
