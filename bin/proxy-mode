@@ -50,8 +50,6 @@ apply_full_proxy() {
 
     mode="$(current_mode)"
     if [ "$mode" = "11" ]; then
-        # Guard is applied first. udp-tun.sh then inserts its marked-TUN
-        # FORWARD accepts at the top, while table 167 has a blackhole fallback.
         "$UDP_TUN" apply
     else
         "$UDP_TUN" off >/dev/null 2>&1 || true
@@ -96,6 +94,12 @@ use_mode() {
 }
 
 post_start() {
+    # Rebuild traffic chains after every mode start. This is intentionally
+    # repeated even though start.sh may already apply them: on the U60 vendor
+    # firewall a mode transition was observed with saved guard=strict state but
+    # no live U60PM_GUARD6 chain. Reapplying here makes the final state explicit
+    # and deterministic before guard/full-proxy attachments are restored.
+    [ -x "$TRAFFIC" ] && "$TRAFFIC" apply
     apply_guard
     apply_full_proxy
 }
