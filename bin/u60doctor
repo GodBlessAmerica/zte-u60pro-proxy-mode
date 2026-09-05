@@ -1,0 +1,55 @@
+#!/bin/sh
+set -u
+
+FAIL=0
+WARN=0
+pass(){ echo "[PASS] $*"; }
+warn(){ echo "[WARN] $*"; WARN=$((WARN+1)); }
+fail(){ echo "[FAIL] $*"; FAIL=$((FAIL+1)); }
+
+BASE=/data/u60proxy
+OLD=/data/proxy-mode
+
+echo "=== u60proxy doctor ==="
+
+[ -x "$BASE/bin/u60proxy" ] && pass "u60proxy binary" || fail "u60proxy binary missing"
+[ -x "$OLD/bin/proxy-mode" ] && pass "proxy-mode core" || fail "proxy-mode core missing"
+[ -x "$OLD/bin/sing-box" ] && pass "sing-box binary" || fail "sing-box binary missing"
+
+MODE="$(cat "$BASE/state/current_mode" 2>/dev/null || cat "$OLD/runtime/current_mode" 2>/dev/null || echo '?')"
+echo "mode=$MODE"
+
+if ps w 2>/dev/null | grep '[u]60proxy/bin/u60proxy serve' >/dev/null 2>&1; then pass "web process"; else fail "web process not running"; fi
+if netstat -lnt 2>/dev/null | grep -q '10\.66\.0\.1:8081'; then pass "10.66.0.1:8081 listening"; else fail "8081 not listening"; fi
+if wget -qO- http://10.66.0.1:8081/api/status >/dev/null 2>&1; then pass "web API"; else fail "web API unavailable"; fi
+
+if grep -q '^sh /data/start-u60proxy-v2.sh$' /etc/rc.local 2>/dev/null; then pass "rc.local startup hook"; else fail "rc.local startup hook missing"; fi
+if [ -x /data/start-u60proxy-v2.sh ]; then pass "startup script"; else fail "startup script missing"; fi
+
+if [ -x "$OLD/scripts/traffic.sh" ]; then
+  T="$($OLD/scripts/traffic.sh status 2>/dev/null)"
+  echo "$T"
+  echo "$T" | grep -q '^traffic_mode=selective' && pass "selective traffic policy" || warn "traffic mode is not selective"
+else
+  fail "traffic.sh missing"
+fi
+
+if [ "$MODE" = "11" ]; then
+  if [ -x "$OLD/scripts/udp-tun.sh" ]; then
+    U="$($OLD/scripts/udp-tun.sh status 2>/dev/null)"
+    echo "$U"
+    echo "$U" | grep -q '^full_proxy_udp=on' && pass "Mode11 UDP TUN" || fail "Mode11 UDP TUN is off"
+    echo "$U" | grep -q '^udp_fail_closed=yes' && pass "UDP fail-closed" || fail "UDP fail-closed missing"
+  else
+    fail "udp-tun.sh missing"
+  fi
+fi
+
+if ps w 2>/dev/null | grep '[s]ing-box' >/dev/null 2>&1; then pass "sing-box process"; else warn "sing-box process not detected"; fi
+
+for f in proxy_devices dns_devices udp_devices ipv6_devices; do
+  [ -f "$OLD/runtime/$f" ] && pass "$f policy file" || fail "$f policy file missing"
+done
+
+echo "summary: fail=$FAIL warn=$WARN"
+[ "$FAIL" -eq 0 ]
