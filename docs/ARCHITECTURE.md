@@ -1,114 +1,50 @@
 # Architecture
 
-## Runtime boundary
+## Control plane
 
-The project treats the ZTE vendor firmware as immutable infrastructure.
+`u60proxy` is a static Go ARM64 binary. It owns:
 
-Persistent project state lives under:
+- device policy database under `/data/u60proxy/state`
+- client discovery and online-state calculation
+- mode selection UI/API
+- embedded web UI on `10.66.0.1:8081`
+- policy-file generation
 
-```text
-/data/proxy-mode
-```
+## Data plane
 
-The stock ZTE web service on ports 80/443 is not modified.
+The existing `/data/proxy-mode` sing-box core remains the data plane.
 
-## Networking
-
-Reference interfaces:
-
-- LAN bridge: `br-lan`
-- Cellular WAN: `rmnet_data0`
-- Firewall backend: `iptables-legacy` / `ip6tables-legacy` with fw3
-
-The project never flushes vendor tables or replaces ZTE/QCOM chains. Transparent proxying is implemented with dedicated reversible `U60PM_*` chains inserted ahead of vendor forwarding/NAT processing.
-
-## Validated transparent proxy path
-
-TCP TPROXY/TUN experiments were not reliable enough on the reference vendor kernel, so the validated production path is REDIRECT-based IPv4 TCP proxying.
+Policy files:
 
 ```text
-LAN client
-  -> br-lan
-     -> U60PM_DNS4 / U60PM_DNS6 (DNS interception for proxy devices)
-     -> U60PM_REDIRECT (IPv4 TCP)
-     -> sing-box
-     -> configured proxy outbound
+/data/proxy-mode/runtime/proxy_devices
+/data/proxy-mode/runtime/dns_devices
+/data/proxy-mode/runtime/udp_devices
+/data/proxy-mode/runtime/ipv6_devices
 ```
 
-Validated local sing-box inbounds:
+`traffic.sh` consumes TCP/DNS/IPv6 selectors independently. `udp-tun.sh` consumes `udp_devices` independently.
 
-- `7893/tcp`: IPv4 transparent TCP REDIRECT inbound
-- `5353/tcp+udp`: IPv4 DNS interception inbound
-- `5354/tcp+udp`: IPv6 DNS interception inbound
-
-## Per-device policy
-
-Policy state is stored as selectors under `/data/proxy-mode/runtime`.
-
-Supported modes:
-
-- `off`: no project interception
-- `all`: proxy all LAN clients except explicit direct selectors
-- `selective`: proxy only explicit proxy selectors
-
-Selectors may be IPv4 addresses or MAC addresses. MAC selectors are preferred because they continue to identify IPv6 packets from the same client.
-
-For a device marked `proxy` by MAC:
+## Mode 11
 
 ```text
-IPv4 TCP        -> sing-box via REDIRECT
-IPv4 DNS        -> sing-box via :5353
-IPv6 DNS        -> sing-box via :5354
-Other IPv4 UDP  -> rejected from WAN
-Global IPv6     -> rejected from WAN
-LAN/private      -> preserved
-IPv6 link-local  -> preserved
+selected TCP  -> U60PM_REDIRECT -> :7893
+selected DNS  -> U60PM_DNS4/6   -> :5353/:5354
+selected UDP  -> U60PM_UDP_TUN  -> fwmark 0x67 -> table 167 -> u60udp0
+selected IPv6 -> U60PM_GUARD6 leak protection
 ```
 
-For a device marked `direct`, project chains return without proxying or leak blocking.
+Private/local destinations are excluded from interception where appropriate.
 
-## IPv6 model
+## Startup
 
-The current design provides per-device IPv6 leak protection, not full IPv6 transparent proxying.
-
-IPv6 DNS requests from proxy devices can be redirected into sing-box, while other global IPv6 forwarding from those devices is rejected. This prevents the cellular IPv6 address from bypassing an IPv4 proxy path.
-
-## Process model
+The vendor firmware reliably executes `/etc/rc.local`. The validated order is:
 
 ```text
-proxy-mode
-  -> select/validate modeN.json
-  -> runtime/active.json
-  -> start.sh
-     -> sing-box
-     -> traffic.sh apply
-
-u60-web :8081
-  -> /data/proxy-mode/bin/proxy-mode
+start-openssh.sh
+start-proxy-mode.sh
+start-u60proxy-v2.sh
+start-log-guard.sh
 ```
 
-The standalone control service should bind only to the LAN address, for example `10.66.0.1:8081`.
-
-Write actions require a locally generated token stored at:
-
-```text
-/data/proxy-mode/runtime/web.token
-```
-
-## Mode model
-
-User configs are stored as:
-
-```text
-/data/proxy-mode/configs/modeN.json
-```
-
-Selecting a mode validates it with `sing-box check` before atomically replacing:
-
-```text
-/data/proxy-mode/runtime/active.json
-```
-
-`proxy-mode start N` and `proxy-mode restart N` select and validate mode `N` before starting.
-
-No production mode files belong in the repository.
+The control-plane starter waits for `br-lan` and avoids duplicate `u60proxy serve` processes.
