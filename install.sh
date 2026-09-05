@@ -33,7 +33,6 @@ cp "$SRC/bin/u60backup" "$BASE/bin/u60backup"
 cp "$SRC/bin/u60rollback" "$BASE/bin/u60rollback"
 chmod 755 "$BASE/bin/u60proxy" "$BASE/bin/u60doctor" "$BASE/bin/u60backup" "$BASE/bin/u60rollback"
 
-# Preserve/seed current mode from the validated proxy core.
 if [ ! -s "$BASE/state/current_mode" ]; then
     M="$(cat "$OLD/runtime/current_mode" 2>/dev/null || echo 11)"
     case "$M" in ''|*[!0-9]*) M=11;; esac
@@ -54,7 +53,6 @@ for svc in u60proxy u60proxy-v2; do
 done
 
 step "[6/10] stop old control-plane processes only"
-# Vendor uhttpd 80/443 is intentionally untouched.
 for p in $(ps w 2>/dev/null | grep '/data/proxy-mode/bin/u60-web' | grep -v grep | awk '{print $1}'); do
     kill "$p" 2>/dev/null || true
 done
@@ -98,7 +96,7 @@ step "[10/10] doctor"
 "$BASE/bin/u60doctor" || true
 
 echo
-echo "u60proxy 2.1.1 installed"
+echo "u60proxy 2.1.2 installed"
 echo "Backup: $BACKUP"
 echo "Web: http://10.66.0.1:8081"
 echo "CLI: /data/u60proxy/bin/u60proxy"
