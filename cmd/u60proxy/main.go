@@ -420,6 +420,110 @@ func modeList() []Mode {
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
+
+func modeConfigPath(n int) (string, error) {
+	if n < 1 || n > 99 {
+		return "", fmt.Errorf("invalid mode")
+	}
+	p := filepath.Join(oldBase, "configs", fmt.Sprintf("mode%d.json", n))
+	if _, err := os.Stat(p); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("mode %d config not found", n)
+		}
+		return "", err
+	}
+	return p, nil
+}
+
+func readModeConfig(n int) (string, error) {
+	p, err := modeConfigPath(n)
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return "", err
+	}
+	if len(b) > 1024*1024 {
+		return "", fmt.Errorf("mode config too large")
+	}
+	return string(b), nil
+}
+
+func saveModeConfig(n int, content string, activate bool) (string, error) {
+	p, err := modeConfigPath(n)
+	if err != nil {
+		return "", err
+	}
+	if len(content) == 0 || len(content) > 1024*1024 {
+		return "", fmt.Errorf("invalid config size")
+	}
+	if !json.Valid([]byte(content)) {
+		return "", fmt.Errorf("invalid JSON")
+	}
+
+	cfgDir := filepath.Dir(p)
+	tmp, err := os.CreateTemp(cfgDir, ".mode-edit-*.json")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err = tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if _, err = tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if !strings.HasSuffix(content, "\n") {
+		if _, err = tmp.WriteString("\n"); err != nil {
+			tmp.Close()
+			return "", err
+		}
+	}
+	if err = tmp.Close(); err != nil {
+		return "", err
+	}
+
+	check := exec.Command(oldBase+"/bin/sing-box", "check", "-c", tmpName)
+	out, err := check.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("sing-box check failed: %s", msg)
+	}
+
+	backupDir := filepath.Join(cfgDir, ".u60proxy-backup")
+	if err = os.MkdirAll(backupDir, 0700); err != nil {
+		return "", err
+	}
+	old, err := os.ReadFile(p)
+	if err != nil {
+		return "", err
+	}
+	stamp := time.Now().Format("20060102-150405")
+	backup := filepath.Join(backupDir, fmt.Sprintf("mode%d-%s.json", n, stamp))
+	if err = os.WriteFile(backup, old, 0600); err != nil {
+		return "", err
+	}
+
+	if err = os.Rename(tmpName, p); err != nil {
+		return "", err
+	}
+	_ = os.Chmod(p, 0600)
+
+	if activate {
+		if err = setMode(n); err != nil {
+			return backup, fmt.Errorf("saved, but activation failed: %v", err)
+		}
+	}
+	return backup, nil
+}
+
 func migrate() error {
 	if e := scan(); e != nil {
 		return e
@@ -441,81 +545,119 @@ func migrate() error {
 					q.Name = l.Name
 				}
 			}
-			q.Proxy, q.DNS, q.UDP, q.IPv6 = true, true, true, true
+			q.Proxy = true
+			q.DNS = true
+			q.UDP = true
+			q.IPv6 = true
 			p[mac] = q
 		}
 	}
 	return savePolicies(p)
 }
 
-func wanMode() string {
-	if _, e := os.Stat("/sys/class/net/rmnet_data0"); e == nil {
-		return "SIM"
-	}
-	return "UNKNOWN"
-}
 func statusMap() map[string]any {
 	ds, _ := devices()
+	wan := "unknown"
+	if _, e := os.Stat("/sys/class/net/rmnet_data0"); e == nil {
+		wan = "SIM"
+	}
+	m := currentMode()
 	online := 0
 	for _, d := range ds {
 		if d.Online {
 			online++
 		}
 	}
-	m := currentMode()
-	return map[string]any{"version": "2.1.1", "wan": wanMode(), "mode": m, "online": online, "devices": ds}
+	return map[string]any{"version": "2.1.2", "wan": wan, "mode": m, "online": online, "devices": ds}
 }
 func jsonResp(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }
 func api(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") && r.Method == "OPTIONS" {
+		w.WriteHeader(204)
+		return
+	}
 	switch r.URL.Path {
 	case "/api/status":
 		jsonResp(w, statusMap())
 	case "/api/devices":
-		d, e := devices()
+		ds, e := devices()
 		if e != nil {
 			http.Error(w, e.Error(), 500)
 			return
 		}
-		jsonResp(w, d)
+		jsonResp(w, ds)
 	case "/api/modes":
 		jsonResp(w, modeList())
 	case "/api/device/set":
-		if r.Method != http.MethodPost {
+		if r.Method != "POST" {
 			http.Error(w, "POST required", 405)
 			return
 		}
 		v := r.URL.Query().Get("value") == "on"
-		if e := setDevice(r.URL.Query().Get("mac"), r.URL.Query().Get("field"), v); e != nil {
+		e := setDevice(r.URL.Query().Get("mac"), r.URL.Query().Get("field"), v)
+		if e != nil {
 			http.Error(w, e.Error(), 400)
 			return
 		}
 		jsonResp(w, map[string]any{"ok": true})
 	case "/api/device/preset":
-		if r.Method != http.MethodPost {
+		if r.Method != "POST" {
 			http.Error(w, "POST required", 405)
 			return
 		}
-		if e := setPreset(r.URL.Query().Get("mac"), r.URL.Query().Get("preset")); e != nil {
+		e := setPreset(r.URL.Query().Get("mac"), r.URL.Query().Get("preset"))
+		if e != nil {
 			http.Error(w, e.Error(), 400)
 			return
 		}
 		jsonResp(w, map[string]any{"ok": true})
+	case "/api/mode/config":
+		n, _ := strconv.Atoi(r.URL.Query().Get("mode"))
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method == "GET" {
+			content, e := readModeConfig(n)
+			if e != nil {
+				http.Error(w, e.Error(), 404)
+				return
+			}
+			jsonResp(w, map[string]any{"ok": true, "mode": n, "content": content})
+			return
+		}
+		if r.Method != "POST" {
+			http.Error(w, "GET or POST required", 405)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1024*1024)
+		var req struct {
+			Content  string `json:"content"`
+			Activate bool   `json:"activate"`
+		}
+		if e := json.NewDecoder(r.Body).Decode(&req); e != nil {
+			http.Error(w, "invalid request: "+e.Error(), 400)
+			return
+		}
+		backup, e := saveModeConfig(n, req.Content, req.Activate)
+		if e != nil {
+			http.Error(w, e.Error(), 400)
+			return
+		}
+		jsonResp(w, map[string]any{"ok": true, "mode": n, "backup": backup, "activated": req.Activate})
 	case "/api/mode/set":
-		if r.Method != http.MethodPost {
+		if r.Method != "POST" {
 			http.Error(w, "POST required", 405)
 			return
 		}
 		n, _ := strconv.Atoi(r.URL.Query().Get("mode"))
 		if e := setMode(n); e != nil {
-			http.Error(w, e.Error(), 400)
+			http.Error(w, e.Error(), 500)
 			return
 		}
-		jsonResp(w, map[string]any{"ok": true})
+		jsonResp(w, map[string]any{"ok": true, "mode": n})
 	case "/api/apply":
-		if r.Method != http.MethodPost {
+		if r.Method != "POST" {
 			http.Error(w, "POST required", 405)
 			return
 		}
@@ -530,8 +672,31 @@ func api(w http.ResponseWriter, r *http.Request) {
 }
 
 const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>U60 Proxy</title><style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% -10%,#1d3147 0,#0a0f16 34%,#070b10 72%);color:#edf4ff;font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}.wrap{max-width:1100px;margin:auto;padding:22px}.panel{background:rgba(16,24,34,.88);border:1px solid #28384a;border-radius:18px;box-shadow:0 14px 40px rgba(0,0,0,.24);backdrop-filter:blur(12px)}.hero{padding:20px;display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center}.title{font-size:25px;font-weight:800;letter-spacing:.2px}.sub{color:#8fa3bb;margin-top:5px}.stats{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.chip{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid #33465b;border-radius:999px;background:#162231;color:#dce9f8}.dot{width:8px;height:8px;border-radius:50%;background:#5d6b7b}.dot.ok{background:#49d39a;box-shadow:0 0 0 4px rgba(73,211,154,.1)}.section{margin-top:14px;padding:17px}.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.section-title{font-size:16px;font-weight:750}.muted{color:#8fa3bb}.modes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.mode{border:1px solid #33465b;background:#131d29;color:#dce9f8;padding:10px 12px;border-radius:12px;cursor:pointer;transition:.16s transform,.16s border,.16s background}.mode:hover{transform:translateY(-1px);border-color:#5b7694}.mode.active{background:#eaf2fb;color:#091018;border-color:#eaf2fb}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(315px,1fr));gap:12px;margin-top:14px}.device{padding:16px;position:relative;overflow:hidden}.device.online:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#49d39a}.dtop{display:flex;justify-content:space-between;gap:12px}.name{font-size:18px;font-weight:760}.meta{color:#8fa3bb;font-size:12px;margin-top:3px;word-break:break-all}.state{font-size:11px;font-weight:700;letter-spacing:.5px;padding:6px 8px;border-radius:999px;border:1px solid #3b4a5c;color:#94a5b9;height:max-content}.state.on{color:#62dda9;border-color:#285a48;background:#10261f}.quick{display:flex;gap:7px;margin-top:13px}.quick button{flex:1}.switches{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}.sw,.quick button{border:1px solid #34465a;background:#121c27;color:#cbd8e7;padding:10px;border-radius:11px;cursor:pointer;transition:.15s}.sw:hover,.quick button:hover{border-color:#5b7694}.sw.on{background:#eaf2fb;color:#091018;border-color:#eaf2fb;font-weight:700}.sw.busy,.quick button.busy{opacity:.55;pointer-events:none}.label{display:flex;align-items:center;justify-content:space-between;gap:8px}.pill{font-size:10px;padding:3px 6px;border-radius:999px;background:rgba(255,255,255,.08)}.toolbar{display:flex;align-items:center;gap:8px}.refresh{border:1px solid #34465a;background:#121c27;color:#dce9f8;border-radius:10px;padding:8px 10px;cursor:pointer}.refresh.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#toast{position:fixed;right:20px;bottom:20px;background:#eaf2fb;color:#091018;padding:11px 14px;border-radius:12px;font-weight:700;box-shadow:0 12px 28px rgba(0,0,0,.35);opacity:0;transform:translateY(8px);pointer-events:none;transition:.2s}#toast.show{opacity:1;transform:none}.foot{color:#71869e;text-align:center;margin:18px 0 6px;font-size:12px}@media(max-width:640px){.wrap{padding:12px}.hero{grid-template-columns:1fr}.stats{justify-content:flex-start}.grid{grid-template-columns:1fr}.section-head{align-items:flex-start}.switches{grid-template-columns:1fr 1fr}}</style></head><body><div class="wrap"><div class="panel hero"><div><div class="title">U60 Proxy</div><div class="sub">设备级透明代理控制 · 实时在线检测</div></div><div id="summary" class="stats"></div></div><div class="panel section"><div class="section-head"><div><div class="section-title">Proxy Mode</div><div class="muted" id="modeHint">正在读取状态…</div></div><div class="toolbar"><span class="muted" id="updated"></span><button class="refresh" id="refresh" onclick="load(true)">↻</button></div></div><div id="modes" class="modes"></div></div><div id="devices" class="grid"></div><div class="foot">U60 Proxy v2.1.1 · Wi-Fi Relay not included</div></div><div id="toast"></div><script>
-let busy=new Set(), timer; async function j(u,o){let r=await fetch(u,o);if(!r.ok)throw new Error((await r.text()).trim()||('HTTP '+r.status));return r.json()}function esc(s){return String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}function toast(t){let x=document.getElementById('toast');x.textContent=t;x.classList.add('show');clearTimeout(x._t);x._t=setTimeout(()=>x.classList.remove('show'),1800)}function chip(t,ok){return '<span class="chip"><span class="dot '+(ok?'ok':'')+'"></span>'+esc(t)+'</span>'}async function load(manual=false){let rb=document.getElementById('refresh');if(manual)rb.classList.add('spin');try{let [s,m,d]=await Promise.all([j('/api/status'),j('/api/modes'),j('/api/devices')]);summary.innerHTML=chip('WAN '+s.wan,s.wan==='SIM')+chip('Mode '+s.mode,true)+chip((s.online||0)+' online',(s.online||0)>0);modeHint.textContent=s.mode===11?'Mode 11 · TCP REDIRECT + UDP TUN/XUDP':'当前模式 '+s.mode;modes.innerHTML=m.filter(x=>!x.deprecated).map(x=>'<button class="mode '+(x.id==s.mode?'active':'')+'" onclick="mode('+x.id+')">'+x.id+' · '+esc(x.name)+(x.udp?' · UDP':'')+'</button>').join('');devices.innerHTML=d.map(card).join('')||'<div class="panel device">暂无已记录设备</div>';updated.textContent=new Date().toLocaleTimeString();}catch(e){toast(e.message)}finally{rb.classList.remove('spin')}}function card(x){let key=x.mac;let b=busy.has(key);return '<div class="panel device '+(x.online?'online':'')+'"><div class="dtop"><div><div class="name">'+esc(x.name||'Unknown')+'</div><div class="meta">'+esc(x.ip||'暂无 IP')+' · '+esc(x.mac)+'</div></div><span class="state '+(x.online?'on':'')+'">'+(x.online?'ONLINE':'OFFLINE')+'</span></div><div class="quick"><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'full\')">⚡ 全代理</button><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'direct\')">○ 全直连</button></div><div class="switches">'+sw(x,'proxy','TCP')+sw(x,'dns','DNS')+sw(x,'udp','UDP')+sw(x,'ipv6','IPv6 Guard')+'</div></div>'}function sw(x,f,n){let b=busy.has(x.mac);return '<button class="sw '+(x[f]?'on ':'')+(b?'busy':'')+'" onclick="setd(\''+x.mac+'\',\''+f+'\','+(!x[f])+')"><span class="label"><span>'+n+'</span><span class="pill">'+(x[f]?'ON':'OFF')+'</span></span></button>'}async function act(mac,fn,msg){busy.add(mac);await load();try{await fn();toast(msg)}catch(e){toast(e.message)}finally{busy.delete(mac);await load()}}async function setd(mac,f,v){await act(mac,()=>j('/api/device/set?mac='+encodeURIComponent(mac)+'&field='+f+'&value='+(v?'on':'off'),{method:'POST'}),f.toUpperCase()+' '+(v?'已开启':'已关闭'))}async function preset(mac,p){await act(mac,()=>j('/api/device/preset?mac='+encodeURIComponent(mac)+'&preset='+p,{method:'POST'}),p==='full'?'已切换全代理':'已切换全直连')}async function mode(n){if(!confirm('切换到 Mode '+n+'？'))return;try{toast('正在切换 Mode '+n+'…');await j('/api/mode/set?mode='+n,{method:'POST'});toast('Mode '+n+' 已启用');await load()}catch(e){toast(e.message)}}load();timer=setInterval(()=>{if(busy.size===0)load()},3000)
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% -10%,#1d3147 0,#0a0f16 34%,#070b10 72%);color:#edf4ff;font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}.wrap{max-width:1180px;margin:auto;padding:22px}.panel{background:rgba(16,24,34,.9);border:1px solid #28384a;border-radius:18px;box-shadow:0 14px 40px rgba(0,0,0,.24);backdrop-filter:blur(12px)}.hero{padding:20px;display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center}.title{font-size:25px;font-weight:800}.sub{color:#8fa3bb;margin-top:5px}.stats{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.chip{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid #33465b;border-radius:999px;background:#162231;color:#dce9f8}.dot{width:8px;height:8px;border-radius:50%;background:#5d6b7b}.dot.ok{background:#49d39a;box-shadow:0 0 0 4px rgba(73,211,154,.1)}.section{margin-top:14px;padding:17px}.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.section-title{font-size:16px;font-weight:750}.muted{color:#8fa3bb}.modes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.mode,.btn,select{border:1px solid #34465a;background:#121c27;color:#dce9f8;padding:10px 12px;border-radius:11px;cursor:pointer}.mode{transition:.16s transform,.16s border,.16s background}.mode:hover,.btn:hover{transform:translateY(-1px);border-color:#5b7694}.mode.active,.btn.primary{background:#eaf2fb;color:#091018;border-color:#eaf2fb;font-weight:700}.btn.danger{border-color:#70414a;color:#ffb9c1}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(315px,1fr));gap:12px;margin-top:14px}.device{padding:16px;position:relative;overflow:hidden}.device.online:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#49d39a}.dtop{display:flex;justify-content:space-between;gap:12px}.name{font-size:18px;font-weight:760}.meta{color:#8fa3bb;font-size:12px;margin-top:3px;word-break:break-all}.state{font-size:11px;font-weight:700;letter-spacing:.5px;padding:6px 8px;border-radius:999px;border:1px solid #3b4a5c;color:#94a5b9;height:max-content}.state.on{color:#62dda9;border-color:#285a48;background:#10261f}.quick{display:flex;gap:7px;margin-top:13px}.quick button{flex:1}.switches{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}.sw,.quick button{border:1px solid #34465a;background:#121c27;color:#cbd8e7;padding:10px;border-radius:11px;cursor:pointer;transition:.15s}.sw:hover,.quick button:hover{border-color:#5b7694}.sw.on{background:#eaf2fb;color:#091018;border-color:#eaf2fb;font-weight:700}.sw.busy,.quick button.busy{opacity:.55;pointer-events:none}.label{display:flex;align-items:center;justify-content:space-between;gap:8px}.pill{font-size:10px;padding:3px 6px;border-radius:999px;background:rgba(255,255,255,.08)}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.refresh{border:1px solid #34465a;background:#121c27;color:#dce9f8;border-radius:10px;padding:8px 10px;cursor:pointer}.refresh.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.editorbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}.editorbar select{min-width:180px}.editorwrap{margin-top:12px;display:none}.editorwrap.open{display:block}.editorstatus{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}.editor{width:100%;height:480px;resize:vertical;border:1px solid #33465b;border-radius:12px;background:#080d13;color:#dbe8f7;padding:14px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;tab-size:2;outline:none}.editor:focus{border-color:#6583a3;box-shadow:0 0 0 3px rgba(101,131,163,.12)}.warn{margin-top:9px;padding:10px 12px;border-radius:10px;background:#261f12;border:1px solid #594a26;color:#d9c58c;font-size:12px}#toast{position:fixed;right:20px;bottom:20px;max-width:min(520px,calc(100vw - 40px));background:#eaf2fb;color:#091018;padding:11px 14px;border-radius:12px;font-weight:700;box-shadow:0 12px 28px rgba(0,0,0,.35);opacity:0;transform:translateY(8px);pointer-events:none;transition:.2s;white-space:pre-wrap}#toast.show{opacity:1;transform:none}.foot{color:#71869e;text-align:center;margin:18px 0 6px;font-size:12px}@media(max-width:640px){.wrap{padding:12px}.hero{grid-template-columns:1fr}.stats{justify-content:flex-start}.grid{grid-template-columns:1fr}.section-head{align-items:flex-start;flex-direction:column}.switches{grid-template-columns:1fr 1fr}.editor{height:420px}.editorbar>*{flex:1 1 auto}}
+</style></head><body><div class="wrap">
+<div class="panel hero"><div><div class="title">U60 Proxy</div><div class="sub">设备级透明代理控制 · Mode JSON 在线编辑</div></div><div id="summary" class="stats"></div></div>
+
+<div class="panel section"><div class="section-head"><div><div class="section-title">Proxy Mode</div><div class="muted" id="modeHint">正在读取状态…</div></div><div class="toolbar"><span class="muted" id="updated"></span><button class="refresh" id="refresh" onclick="load(true)">↻</button></div></div><div id="modes" class="modes"></div></div>
+
+<div class="panel section">
+<div class="section-head"><div><div class="section-title">Mode JSON 配置编辑器</div><div class="muted">直接编辑 /data/proxy-mode/configs/modeN.json</div></div></div>
+<div class="editorbar"><select id="editorMode"></select><button class="btn" onclick="openEditor()">载入 JSON</button><button class="btn" onclick="formatJSON()">格式化</button><button class="btn primary" onclick="saveJSON(false)">保存并校验</button><button class="btn danger" onclick="saveJSON(true)">保存并切换到该 Mode</button></div>
+<div id="editorWrap" class="editorwrap"><div class="editorstatus"><span id="editorLabel" class="muted"></span><span id="dirty" class="muted"></span></div><textarea id="jsonEditor" class="editor" spellcheck="false"></textarea><div class="warn">保存前会先执行 sing-box check；旧 JSON 自动备份。注意：8081 当前无登录认证，JSON 可能包含私有服务器信息，只应在可信 LAN 使用。</div></div>
+</div>
+
+<div id="devices" class="grid"></div><div class="foot">U60 Proxy v2.1.2 · Wi-Fi Relay not included</div></div><div id="toast"></div><script>
+let busy=new Set(),timer,allModes=[],loadedMode=0,loadedText='';async function j(u,o){let r=await fetch(u,o);if(!r.ok)throw new Error((await r.text()).trim()||('HTTP '+r.status));return r.json()}function esc(s){return String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}function toast(t,ms=2200){let x=document.getElementById('toast');x.textContent=t;x.classList.add('show');clearTimeout(x._t);x._t=setTimeout(()=>x.classList.remove('show'),ms)}function chip(t,ok){return '<span class="chip"><span class="dot '+(ok?'ok':'')+'"></span>'+esc(t)+'</span>'}
+async function load(manual=false){let rb=document.getElementById('refresh');if(manual)rb.classList.add('spin');try{let [s,m,d]=await Promise.all([j('/api/status'),j('/api/modes'),j('/api/devices')]);allModes=m.filter(x=>!x.deprecated);summary.innerHTML=chip('WAN '+s.wan,s.wan==='SIM')+chip('Mode '+s.mode,true)+chip((s.online||0)+' online',(s.online||0)>0);modeHint.textContent=s.mode===11?'Mode 11 · TCP REDIRECT + UDP TUN/XUDP':'当前模式 '+s.mode;modes.innerHTML=allModes.map(x=>'<button class="mode '+(x.id==s.mode?'active':'')+'" onclick="mode('+x.id+')">'+x.id+' · '+esc(x.name)+(x.udp?' · UDP':'')+'</button>').join('');let sel=document.getElementById('editorMode'),old=sel.value;sel.innerHTML=allModes.map(x=>'<option value="'+x.id+'">Mode '+x.id+' · '+esc(x.name)+'</option>').join('');if(old&&allModes.some(x=>String(x.id)===old))sel.value=old;else sel.value=String(s.mode);devices.innerHTML=d.map(card).join('')||'<div class="panel device">暂无已记录设备</div>';updated.textContent=new Date().toLocaleTimeString();}catch(e){toast(e.message,4000)}finally{rb.classList.remove('spin')}}
+function card(x){let key=x.mac,b=busy.has(key);return '<div class="panel device '+(x.online?'online':'')+'"><div class="dtop"><div><div class="name">'+esc(x.name||'Unknown')+'</div><div class="meta">'+esc(x.ip||'暂无 IP')+' · '+esc(x.mac)+'</div></div><span class="state '+(x.online?'on':'')+'">'+(x.online?'ONLINE':'OFFLINE')+'</span></div><div class="quick"><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'full\')">⚡ 全代理</button><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'direct\')">○ 全直连</button></div><div class="switches">'+sw(x,'proxy','TCP')+sw(x,'dns','DNS')+sw(x,'udp','UDP')+sw(x,'ipv6','IPv6 Guard')+'</div></div>'}
+function sw(x,f,n){let b=busy.has(x.mac);return '<button class="sw '+(x[f]?'on ':'')+(b?'busy':'')+'" onclick="setd(\''+x.mac+'\',\''+f+'\','+(!x[f])+')"><span class="label"><span>'+n+'</span><span class="pill">'+(x[f]?'ON':'OFF')+'</span></span></button>'}
+async function act(mac,fn,msg){busy.add(mac);await load();try{await fn();toast(msg)}catch(e){toast(e.message,5000)}finally{busy.delete(mac);await load()}}
+async function setd(mac,f,v){await act(mac,()=>j('/api/device/set?mac='+encodeURIComponent(mac)+'&field='+f+'&value='+(v?'on':'off'),{method:'POST'}),f.toUpperCase()+' '+(v?'已开启':'已关闭'))}
+async function preset(mac,p){await act(mac,()=>j('/api/device/preset?mac='+encodeURIComponent(mac)+'&preset='+p,{method:'POST'}),p==='full'?'已切换全代理':'已切换全直连')}
+async function mode(n){if(!confirm('切换到 Mode '+n+'？'))return;try{toast('正在切换 Mode '+n+'…');await j('/api/mode/set?mode='+n,{method:'POST'});toast('Mode '+n+' 已启用');await load()}catch(e){toast(e.message,6000)}}
+async function openEditor(){let n=Number(editorMode.value);if(!n)return;if(loadedMode&&jsonEditor.value!==loadedText&&!confirm('当前 JSON 有未保存修改，确定载入其它 Mode？'))return;try{let x=await j('/api/mode/config?mode='+n);loadedMode=n;loadedText=x.content;jsonEditor.value=x.content;editorWrap.classList.add('open');editorLabel.textContent='正在编辑 Mode '+n;dirty.textContent='';jsonEditor.focus()}catch(e){toast(e.message,5000)}}
+function formatJSON(){try{let o=JSON.parse(jsonEditor.value);jsonEditor.value=JSON.stringify(o,null,2)+'\n';dirty.textContent='未保存';toast('JSON 已格式化')}catch(e){toast('JSON 语法错误：'+e.message,5000)}}
+async function saveJSON(activate){let n=Number(editorMode.value);if(loadedMode!==n){toast('请先载入这个 Mode 的 JSON');return}let content=jsonEditor.value;try{JSON.parse(content)}catch(e){toast('JSON 语法错误：'+e.message,5000);return}if(activate&&!confirm('保存并切换到 Mode '+n+'？'))return;try{toast(activate?'正在校验、保存并切换…':'正在校验并保存…');let x=await j('/api/mode/config?mode='+n,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,activate})});loadedText=content;dirty.textContent='已保存';toast((activate?'已保存并切换 Mode '+n:'Mode '+n+' 已保存')+'\\n备份已创建',3500);await load()}catch(e){toast(e.message,7000)}}
+jsonEditor.addEventListener('input',()=>{if(loadedMode)dirty.textContent=jsonEditor.value===loadedText?'':'未保存'});window.addEventListener('beforeunload',e=>{if(loadedMode&&jsonEditor.value!==loadedText){e.preventDefault();e.returnValue=''}});load();timer=setInterval(()=>{if(busy.size===0)load()},3000)
 </script></body></html>`
 
 func serve() {
