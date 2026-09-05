@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+ARG="${1:-latest}"
+if [ "$ARG" = latest ]; then
+  if [ -s /data/u60proxy-install-backup-latest ]; then
+    SRC="$(cat /data/u60proxy-install-backup-latest)"
+  elif [ -s /data/u60proxy-manual-backup-latest ]; then
+    SRC="$(cat /data/u60proxy-manual-backup-latest)"
+  else
+    echo "No latest backup pointer found" >&2; exit 1
+  fi
+else
+  SRC="$ARG"
+fi
+[ -d "$SRC" ] || { echo "Backup not found: $SRC" >&2; exit 1; }
+
+if [ -s /data/u60proxy/runtime/web-supervisor.pid ]; then
+  p="$(cat /data/u60proxy/runtime/web-supervisor.pid 2>/dev/null || true)"
+  [ -n "$p" ] && kill "$p" 2>/dev/null || true
+fi
+for p in $(ps w 2>/dev/null | grep '/data/u60proxy/bin/u60proxy serve' | grep -v grep | awk '{print $1}'); do kill "$p" 2>/dev/null || true; done
+
+if [ -d "$SRC/u60proxy" ]; then rm -rf /data/u60proxy; cp -a "$SRC/u60proxy" /data/u60proxy; fi
+if [ -f "$SRC/proxy-mode-scripts/traffic.sh" ]; then cp "$SRC/proxy-mode-scripts/traffic.sh" /data/proxy-mode/scripts/traffic.sh; fi
+if [ -f "$SRC/proxy-mode-scripts/udp-tun.sh" ]; then cp "$SRC/proxy-mode-scripts/udp-tun.sh" /data/proxy-mode/scripts/udp-tun.sh; fi
+if [ -f "$SRC/proxy-mode/scripts/traffic.sh" ]; then cp "$SRC/proxy-mode/scripts/traffic.sh" /data/proxy-mode/scripts/traffic.sh; fi
+if [ -f "$SRC/proxy-mode/scripts/udp-tun.sh" ]; then cp "$SRC/proxy-mode/scripts/udp-tun.sh" /data/proxy-mode/scripts/udp-tun.sh; fi
+if [ -d "$SRC/proxy-mode/configs" ]; then rm -rf /data/proxy-mode/configs; cp -a "$SRC/proxy-mode/configs" /data/proxy-mode/configs; fi
+if [ -d "$SRC/proxy-mode/runtime" ]; then rm -rf /data/proxy-mode/runtime; cp -a "$SRC/proxy-mode/runtime" /data/proxy-mode/runtime; fi
+[ -f "$SRC/rc.local" ] && cp "$SRC/rc.local" /etc/rc.local
+if [ -f "$SRC/start-u60proxy-v2.sh" ]; then cp "$SRC/start-u60proxy-v2.sh" /data/start-u60proxy-v2.sh; chmod 755 /data/start-u60proxy-v2.sh; fi
+
+echo "Rollback restored from: $SRC"
+echo "Reboot recommended."
