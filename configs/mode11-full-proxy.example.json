@@ -31,7 +31,8 @@
       "tag": "udp-tun-in",
       "interface_name": "u60udp0",
       "address": [
-        "172.31.255.1/30"
+        "172.31.255.1/30",
+        "fd75:60:0:167::1/126"
       ],
       "mtu": 1300,
       "auto_route": false,
