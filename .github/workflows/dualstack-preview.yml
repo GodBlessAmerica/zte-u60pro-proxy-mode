@@ -1,0 +1,25 @@
+name: Build dual-stack preview
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/dualstack-safe-proxy-20261020
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Compile ARM64
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o dist/u60proxy ./cmd/u60proxy
+          file dist/u60proxy
+      - uses: actions/upload-artifact@v4
+        with:
+          name: u60proxy-arm64-dualstack-preview
+          path: dist/u60proxy
