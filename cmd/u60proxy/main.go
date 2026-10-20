@@ -341,7 +341,7 @@ func applyLocked(p map[string]Policy) error {
 		}
 	}
 	m := currentMode()
-	if m == 11 {
+	if m == 11 || m == 12 || m == 13 {
 		if _, e := os.Stat("/sys/class/net/u60udp0"); e == nil {
 			_ = run(oldBase+"/scripts/udp-tun.sh", "apply")
 		}
