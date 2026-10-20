@@ -8,7 +8,7 @@ UDP_TUN="$BASE/scripts/udp-tun.sh"
 LEGACY_TPROXY="$BASE/scripts/udp-tproxy.sh"
 IPV6_TUN="$BASE/scripts/ipv6-tun.sh"
 
-[ -x "$IPV6_TUN" ] && "$IPV6_TUN" disable >/dev/null 2>&1 || true
+[ -x "$IPV6_TUN" ] && "$IPV6_TUN" clear >/dev/null 2>&1 || true
 # Remove mode-specific UDP policy routing before traffic chains or the TUN vanish.
 [ -x "$UDP_TUN" ] && "$UDP_TUN" off >/dev/null 2>&1 || true
 [ -x "$LEGACY_TPROXY" ] && "$LEGACY_TPROXY" off >/dev/null 2>&1 || true
