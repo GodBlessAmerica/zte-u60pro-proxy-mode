@@ -95,6 +95,7 @@ case "${1:-status}" in
       exit 1
     fi
     status;;
+  clear) clear;;
   disable|off) echo off > "$STATE"; clear; status;;
   *) echo "usage: $0 status|apply|enable|disable" >&2; exit 2;;
 esac
