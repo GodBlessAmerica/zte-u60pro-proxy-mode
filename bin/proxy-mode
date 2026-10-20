@@ -11,6 +11,7 @@ TRAFFIC="$ROOT_DIR/scripts/traffic.sh"
 GUARD="$ROOT_DIR/scripts/guard-control.sh"
 UDP_TUN="$ROOT_DIR/scripts/udp-tun.sh"
 LEGACY_TPROXY="$ROOT_DIR/scripts/udp-tproxy.sh"
+IPV6_TUN="$ROOT_DIR/scripts/ipv6-tun.sh"
 
 usage() {
     cat <<'EOF'
@@ -29,6 +30,7 @@ Usage:
   proxy-mode guard udp strict|off
   proxy-mode guard ipv6 strict|off
   proxy-mode fullproxy status|on|off
+  proxy-mode ipv6proxy status|enable|disable
 EOF
 }
 
@@ -49,9 +51,11 @@ apply_full_proxy() {
     [ -x "$LEGACY_TPROXY" ] && "$LEGACY_TPROXY" off >/dev/null 2>&1 || true
 
     mode="$(current_mode)"
-    if [ "$mode" = "11" ]; then
+    if [ "$mode" = "11" ] || [ "$mode" = "12" ] || [ "$mode" = "13" ]; then
         "$UDP_TUN" apply
+        [ -x "$IPV6_TUN" ] && "$IPV6_TUN" apply || true
     else
+        [ -x "$IPV6_TUN" ] && "$IPV6_TUN" disable >/dev/null 2>&1 || true
         "$UDP_TUN" off >/dev/null 2>&1 || true
     fi
 }
@@ -69,6 +73,7 @@ status() {
     [ -x "$TRAFFIC" ] && "$TRAFFIC" status || true
     [ -x "$GUARD" ] && "$GUARD" status || true
     [ -x "$UDP_TUN" ] && "$UDP_TUN" status || true
+    [ -x "$IPV6_TUN" ] && "$IPV6_TUN" status || true
 }
 
 list_modes() {
@@ -157,6 +162,10 @@ case "$cmd" in
                 ;;
             *) usage; exit 2 ;;
         esac
+        ;;
+    ipv6proxy)
+        [ -x "$IPV6_TUN" ] || { echo "IPv6 TUN helper missing" >&2; exit 1; }
+        case "${2:-}" in status|enable|disable) "$IPV6_TUN" "$2";; *) usage; exit 2;; esac
         ;;
     fullproxy)
         [ -x "$UDP_TUN" ] || { echo "udp-tun.sh missing" >&2; exit 1; }
