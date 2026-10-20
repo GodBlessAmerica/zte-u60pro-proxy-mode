@@ -344,6 +344,9 @@ func applyLocked(p map[string]Policy) error {
 	if m == 11 || m == 12 || m == 13 {
 		if _, e := os.Stat("/sys/class/net/u60udp0"); e == nil {
 			_ = run(oldBase+"/scripts/udp-tun.sh", "apply")
+			// traffic.sh reattaches IPv6 Guard at FORWARD priority 1.
+			// Reinstall the authorized TUN accept ahead of the guard after policy apply.
+			_ = run(oldBase+"/scripts/ipv6-tun.sh", "apply")
 		}
 	} else {
 		_ = run(oldBase+"/scripts/udp-tun.sh", "off")
