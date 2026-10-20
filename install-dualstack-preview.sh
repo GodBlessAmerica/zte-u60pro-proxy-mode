@@ -23,9 +23,12 @@ done
 cp "$SRC/bin/proxy-mode" "$OLD/bin/proxy-mode"
 cp "$SRC/scripts/stop.sh" "$OLD/scripts/stop.sh"
 cp "$SRC/scripts/ipv6-tun.sh" "$OLD/scripts/ipv6-tun.sh"
-cp "$SRC/bin/u60proxy" "$CTL"
+cp "$SRC/bin/u60proxy" "$CTL.new"
+chmod 755 "$CTL.new"
+mv -f "$CTL.new" "$CTL"
 chmod 755 "$OLD/bin/proxy-mode" "$OLD/scripts/stop.sh" "$OLD/scripts/ipv6-tun.sh" "$CTL"
 echo "$BACKUP" > /data/u60proxy-dualstack-last-backup
 echo "Installed. Backups: $BACKUP"
 echo "IPv6 proxy is OFF by default. Add fd75:60:0:167::1/126 to the TUN address list before enabling."
+echo "Restart the u60proxy web/control process to load new ARM64 binary (existing process keeps old binary)."
 echo "Switch current Mode through 8081 after verifying sing-box configs."
