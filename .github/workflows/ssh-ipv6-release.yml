@@ -1,0 +1,61 @@
+name: Build complete SSH IPv6 update
+on:
+  push:
+    branches: [feature/ssh-ipv6-complete]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: ssh-ipv6-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test and build
+        run: |
+          go test ./...
+          go vet ./...
+          for f in scripts/*.sh bin/proxy-mode install-ssh-ipv6.sh rollback-ssh-ipv6.sh update-ssh-ipv6.sh start-u60proxy-v2.sh; do sh -n "$f"; done
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o bin/u60proxy ./cmd/u60proxy
+          file bin/u60proxy
+      - name: Validate generated config using real sing-box
+        run: |
+          curl -fL --retry 3 https://github.com/SagerNet/sing-box/releases/download/v1.12.0/sing-box-1.12.0-linux-amd64.tar.gz -o /tmp/sb.tar.gz
+          tar -xzf /tmp/sb.tar.gz -C /tmp
+          U60_SING_BOX=/tmp/sing-box-1.12.0-linux-amd64/sing-box go test ./cmd/u60proxy -count=1
+      - name: Package complete update
+        run: |
+          mkdir -p dist/u60proxy-2.2.0-ssh-ipv6/bin dist/u60proxy-2.2.0-ssh-ipv6/scripts
+          cp bin/u60proxy bin/proxy-mode dist/u60proxy-2.2.0-ssh-ipv6/bin/
+          cp scripts/traffic.sh scripts/stop.sh scripts/ssh-ipv6.sh dist/u60proxy-2.2.0-ssh-ipv6/scripts/
+          cp install-ssh-ipv6.sh rollback-ssh-ipv6.sh start-u60proxy-v2.sh SSH-IPV6.md dist/u60proxy-2.2.0-ssh-ipv6/
+          chmod 755 dist/u60proxy-2.2.0-ssh-ipv6/bin/*
+          cd dist
+          tar -czf u60proxy-2.2.0-ssh-ipv6.tar.gz u60proxy-2.2.0-ssh-ipv6
+          sha256sum u60proxy-2.2.0-ssh-ipv6.tar.gz > SHA256SUMS
+      - name: Publish downloadable update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view v2.2.0-ssh-ipv6 >/dev/null 2>&1 || gh release create v2.2.0-ssh-ipv6 --target "$GITHUB_SHA" --prerelease --title 'U60 Proxy 2.2.0 — complete SSH IPv6 TCP update' --notes-file SSH-IPV6.md
+          gh release upload v2.2.0-ssh-ipv6 dist/u60proxy-2.2.0-ssh-ipv6.tar.gz dist/SHA256SUMS --clobber
+      - name: Remove superseded preview as requested by repository owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OLD=feature/dualstack-safe-proxy-20261020
+          REF="repos/$GITHUB_REPOSITORY/git/refs/heads/$OLD"
+          SHA=$(gh api "$REF" --jq '.object.sha' 2>/dev/null || true)
+          if [ "$SHA" = e8491d1bdc96c8b7c176030890763cc435011683 ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/1" -f state=closed
+            gh api --method DELETE "$REF"
+          elif [ -n "$SHA" ]; then
+            echo 'Old branch has new commits; refusing to delete a changed branch.' >&2
+            exit 1
+          fi

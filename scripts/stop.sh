@@ -10,7 +10,7 @@ LEGACY_TPROXY="$BASE/scripts/udp-tproxy.sh"
 # Remove mode-specific UDP policy routing before traffic chains or the TUN vanish.
 [ -x "$UDP_TUN" ] && "$UDP_TUN" off >/dev/null 2>&1 || true
 [ -x "$LEGACY_TPROXY" ] && "$LEGACY_TPROXY" off >/dev/null 2>&1 || true
-[ -x "$TRAFFIC" ] && "$TRAFFIC" clear || true
+[ -x "$TRAFFIC" ] && "$TRAFFIC" apply || true
 
 if [ ! -f "$PID" ]; then
     echo "sing-box not running"

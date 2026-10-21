@@ -2,6 +2,8 @@
 
 `u60proxy` is a portable sing-box proxy manager for the ZTE U60 Pro / MU5250 family.
 
+Complete SSH IPv6 TCP update: **2.2.0** — see [SSH-IPV6.md](SSH-IPV6.md) for the one-command updater and rollback. Existing installations only; hardware validation pending.
+
 Current stable release: **2.1.2** (Wi-Fi relay not included yet).
 
 This repository is intentionally separate from `GodBlessAmerica/openwrt-proxy-mode-suite`; U60 Pro specific work lives here.

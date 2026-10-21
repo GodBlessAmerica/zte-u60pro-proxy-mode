@@ -389,7 +389,7 @@ func setMode(n int) error {
 func modeList() []Mode {
 	meta := map[int]Mode{
 		4:  {4, "VLESS Reality", false, false},
-		5:  {5, "SSH Direct", false, false},
+		5:  {5, "SSH Direct · IPv6 TCP", false, false},
 		6:  {6, "SSH → SOCKS5", false, false},
 		7:  {7, "SSH Jump", false, false},
 		8:  {8, "LAN SOCKS5", false, false},
@@ -568,7 +568,7 @@ func statusMap() map[string]any {
 			online++
 		}
 	}
-	return map[string]any{"version": "2.1.2", "wan": wan, "mode": m, "online": online, "devices": ds}
+	return map[string]any{"version": "2.2.0", "wan": wan, "mode": m, "online": online, "devices": ds}
 }
 func jsonResp(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -674,7 +674,7 @@ func api(w http.ResponseWriter, r *http.Request) {
 const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>U60 Proxy</title><style>
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% -10%,#1d3147 0,#0a0f16 34%,#070b10 72%);color:#edf4ff;font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}.wrap{max-width:1180px;margin:auto;padding:22px}.panel{background:rgba(16,24,34,.9);border:1px solid #28384a;border-radius:18px;box-shadow:0 14px 40px rgba(0,0,0,.24);backdrop-filter:blur(12px)}.hero{padding:20px;display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center}.title{font-size:25px;font-weight:800}.sub{color:#8fa3bb;margin-top:5px}.stats{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.chip{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid #33465b;border-radius:999px;background:#162231;color:#dce9f8}.dot{width:8px;height:8px;border-radius:50%;background:#5d6b7b}.dot.ok{background:#49d39a;box-shadow:0 0 0 4px rgba(73,211,154,.1)}.section{margin-top:14px;padding:17px}.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.section-title{font-size:16px;font-weight:750}.muted{color:#8fa3bb}.modes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.mode,.btn,select{border:1px solid #34465a;background:#121c27;color:#dce9f8;padding:10px 12px;border-radius:11px;cursor:pointer}.mode{transition:.16s transform,.16s border,.16s background}.mode:hover,.btn:hover{transform:translateY(-1px);border-color:#5b7694}.mode.active,.btn.primary{background:#eaf2fb;color:#091018;border-color:#eaf2fb;font-weight:700}.btn.danger{border-color:#70414a;color:#ffb9c1}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(315px,1fr));gap:12px;margin-top:14px}.device{padding:16px;position:relative;overflow:hidden}.device.online:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#49d39a}.dtop{display:flex;justify-content:space-between;gap:12px}.name{font-size:18px;font-weight:760}.meta{color:#8fa3bb;font-size:12px;margin-top:3px;word-break:break-all}.state{font-size:11px;font-weight:700;letter-spacing:.5px;padding:6px 8px;border-radius:999px;border:1px solid #3b4a5c;color:#94a5b9;height:max-content}.state.on{color:#62dda9;border-color:#285a48;background:#10261f}.quick{display:flex;gap:7px;margin-top:13px}.quick button{flex:1}.switches{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}.sw,.quick button{border:1px solid #34465a;background:#121c27;color:#cbd8e7;padding:10px;border-radius:11px;cursor:pointer;transition:.15s}.sw:hover,.quick button:hover{border-color:#5b7694}.sw.on{background:#eaf2fb;color:#091018;border-color:#eaf2fb;font-weight:700}.sw.busy,.quick button.busy{opacity:.55;pointer-events:none}.label{display:flex;align-items:center;justify-content:space-between;gap:8px}.pill{font-size:10px;padding:3px 6px;border-radius:999px;background:rgba(255,255,255,.08)}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.refresh{border:1px solid #34465a;background:#121c27;color:#dce9f8;border-radius:10px;padding:8px 10px;cursor:pointer}.refresh.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.editorbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}.editorbar select{min-width:180px}.editorwrap{margin-top:12px;display:none}.editorwrap.open{display:block}.editorstatus{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}.editor{width:100%;height:480px;resize:vertical;border:1px solid #33465b;border-radius:12px;background:#080d13;color:#dbe8f7;padding:14px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;tab-size:2;outline:none}.editor:focus{border-color:#6583a3;box-shadow:0 0 0 3px rgba(101,131,163,.12)}.warn{margin-top:9px;padding:10px 12px;border-radius:10px;background:#261f12;border:1px solid #594a26;color:#d9c58c;font-size:12px}#toast{position:fixed;right:20px;bottom:20px;max-width:min(520px,calc(100vw - 40px));background:#eaf2fb;color:#091018;padding:11px 14px;border-radius:12px;font-weight:700;box-shadow:0 12px 28px rgba(0,0,0,.35);opacity:0;transform:translateY(8px);pointer-events:none;transition:.2s;white-space:pre-wrap}#toast.show{opacity:1;transform:none}.foot{color:#71869e;text-align:center;margin:18px 0 6px;font-size:12px}@media(max-width:640px){.wrap{padding:12px}.hero{grid-template-columns:1fr}.stats{justify-content:flex-start}.grid{grid-template-columns:1fr}.section-head{align-items:flex-start;flex-direction:column}.switches{grid-template-columns:1fr 1fr}.editor{height:420px}.editorbar>*{flex:1 1 auto}}
 </style></head><body><div class="wrap">
-<div class="panel hero"><div><div class="title">U60 Proxy</div><div class="sub">设备级透明代理控制 · Mode JSON 在线编辑</div></div><div id="summary" class="stats"></div></div>
+<div class="panel hero"><div><div class="title">U60 Proxy</div><div class="sub">SSH-D 支持 IPv6 TCP · IPv6 Guard 保持开启</div></div><div id="summary" class="stats"></div></div>
 
 <div class="panel section"><div class="section-head"><div><div class="section-title">Proxy Mode</div><div class="muted" id="modeHint">正在读取状态…</div></div><div class="toolbar"><span class="muted" id="updated"></span><button class="refresh" id="refresh" onclick="load(true)">↻</button></div></div><div id="modes" class="modes"></div></div>
 
@@ -684,7 +684,7 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewp
 <div id="editorWrap" class="editorwrap"><div class="editorstatus"><span id="editorLabel" class="muted"></span><span id="dirty" class="muted"></span></div><textarea id="jsonEditor" class="editor" spellcheck="false"></textarea><div class="warn">保存前会先执行 sing-box check；旧 JSON 自动备份。注意：8081 当前无登录认证，JSON 可能包含私有服务器信息，只应在可信 LAN 使用。</div></div>
 </div>
 
-<div id="devices" class="grid"></div><div class="foot">U60 Proxy v2.1.2 · Wi-Fi Relay not included</div></div><div id="toast"></div><script>
+<div id="devices" class="grid"></div><div class="foot">U60 Proxy v2.2.0 · Wi-Fi Relay not included</div></div><div id="toast"></div><script>
 let busy=new Set(),timer,allModes=[],loadedMode=0,loadedText='';async function j(u,o){let r=await fetch(u,o);if(!r.ok)throw new Error((await r.text()).trim()||('HTTP '+r.status));return r.json()}function esc(s){return String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}function toast(t,ms=2200){let x=document.getElementById('toast');x.textContent=t;x.classList.add('show');clearTimeout(x._t);x._t=setTimeout(()=>x.classList.remove('show'),ms)}function chip(t,ok){return '<span class="chip"><span class="dot '+(ok?'ok':'')+'"></span>'+esc(t)+'</span>'}
 async function load(manual=false){let rb=document.getElementById('refresh');if(manual)rb.classList.add('spin');try{let [s,m,d]=await Promise.all([j('/api/status'),j('/api/modes'),j('/api/devices')]);allModes=m.filter(x=>!x.deprecated);summary.innerHTML=chip('WAN '+s.wan,s.wan==='SIM')+chip('Mode '+s.mode,true)+chip((s.online||0)+' online',(s.online||0)>0);modeHint.textContent=s.mode===11?'Mode 11 · TCP REDIRECT + UDP TUN/XUDP':'当前模式 '+s.mode;modes.innerHTML=allModes.map(x=>'<button class="mode '+(x.id==s.mode?'active':'')+'" onclick="mode('+x.id+')">'+x.id+' · '+esc(x.name)+(x.udp?' · UDP':'')+'</button>').join('');let sel=document.getElementById('editorMode'),old=sel.value;sel.innerHTML=allModes.map(x=>'<option value="'+x.id+'">Mode '+x.id+' · '+esc(x.name)+'</option>').join('');if(old&&allModes.some(x=>String(x.id)===old))sel.value=old;else sel.value=String(s.mode);devices.innerHTML=d.map(card).join('')||'<div class="panel device">暂无已记录设备</div>';updated.textContent=new Date().toLocaleTimeString();}catch(e){toast(e.message,4000)}finally{rb.classList.remove('spin')}}
 function card(x){let key=x.mac,b=busy.has(key);return '<div class="panel device '+(x.online?'online':'')+'"><div class="dtop"><div><div class="name">'+esc(x.name||'Unknown')+'</div><div class="meta">'+esc(x.ip||'暂无 IP')+' · '+esc(x.mac)+'</div></div><span class="state '+(x.online?'on':'')+'">'+(x.online?'ONLINE':'OFFLINE')+'</span></div><div class="quick"><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'full\')">⚡ 全代理</button><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'direct\')">○ 全直连</button></div><div class="switches">'+sw(x,'proxy','TCP')+sw(x,'dns','DNS')+sw(x,'udp','UDP')+sw(x,'ipv6','IPv6 Guard')+'</div></div>'}
@@ -746,6 +746,11 @@ func main() {
 	}
 	var e error
 	switch os.Args[1] {
+	case "prepare-runtime":
+		if len(os.Args) != 4 {
+			os.Exit(2)
+		}
+		e = prepareRuntime(os.Args[2], os.Args[3])
 	case "serve":
 		serve()
 		return
