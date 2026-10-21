@@ -69,6 +69,7 @@ status() {
     [ -x "$TRAFFIC" ] && "$TRAFFIC" status || true
     [ -x "$GUARD" ] && "$GUARD" status || true
     [ -x "$UDP_TUN" ] && "$UDP_TUN" status || true
+    [ ! -x "$BASE/scripts/ssh-ipv6.sh" ] || "$BASE/scripts/ssh-ipv6.sh" status
 }
 
 list_modes() {
@@ -87,8 +88,7 @@ use_mode() {
     src="$BASE/configs/mode${n}.json"
     [ -f "$src" ] || { echo "mode not found: $src" >&2; exit 1; }
     "$BASE/bin/sing-box" check -c "$src"
-    cp "$src" "$BASE/runtime/active.json.tmp"
-    mv "$BASE/runtime/active.json.tmp" "$BASE/runtime/active.json"
+    /data/u60proxy/bin/u60proxy prepare-runtime "$src" "$BASE/runtime/active.json"
     echo "$n" > "$BASE/runtime/current_mode"
     echo "mode $n selected"
 }
