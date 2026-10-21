@@ -25,7 +25,12 @@ apply() {
  ip6tables -N "$INPUT"
  for n in ::1/128 fe80::/10 ff00::/8 fc00::/7; do ip6tables -t nat -A "$CHAIN" -d "$n" -j RETURN; done
  # Router-local services must not be proxied, including global LAN addresses.
- ip6tables -t nat -A "$CHAIN" -m addrtype --dst-type LOCAL -j RETURN
+ # Vendor firmware lacks xt_addrtype. Enumerate local addresses instead.
+ local_addr_dump=$(ip -6 addr show) || return 1
+ local_addrs=$(printf '%s\n' "$local_addr_dump" | awk '$1 == "inet6" { split($2, a, "/"); print a[1] }')
+ for local_addr in $local_addrs; do
+   ip6tables -t nat -A "$CHAIN" -d "$local_addr/128" -j RETURN
+ done
  # Per-device DNS is handled by the existing DNS6 chain.
  ip6tables -t nat -A "$CHAIN" -p tcp --dport 53 -j RETURN
  if [ "$(cat "$RT/traffic_mode")" = all ]; then
