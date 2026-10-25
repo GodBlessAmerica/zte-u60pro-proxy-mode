@@ -80,51 +80,89 @@ info() {
     msg 'VM not found; resources may be partially created or being deleted.'
   fi
 }
+# Retry transient transport errors only; never reinterpret a failed read as absence.
+az_retry() {
+  local attempt rc err
+  err=$(mktemp)
+  for attempt in 1 2 3 4; do
+    if az "$@" 2>"$err"; then cat "$err" >&2; rm -f "$err"; return 0; else rc=$?; fi
+    cat "$err" >&2
+    if ! grep -Eqi 'ConnectionResetError|Connection aborted|Connection reset|timed out|Timeout|temporarily unavailable|RemoteDisconnected' "$err"; then
+      rm -f "$err"; return "$rc"
+    fi
+    msg "Azure connection interrupted; retry $attempt/4 (resources retained)." >&2
+    sleep "$((attempt * 3))"
+  done
+  rm -f "$err"; return "$rc"
+}
+# Show first: only explicit ResourceNotFound permits creation. Unknown errors stop.
+ensure_network_resource() {
+  local kind="$1"; shift
+  local -a prefix
+  read -r -a prefix <<< "$kind"
+  local err rc
+  err=$(mktemp)
+  if az_retry network "${prefix[@]}" show "$@" -o none 2>"$err"; then
+    cat "$err" >&2; rm -f "$err"; msg "Reusing $kind"; return 0
+  else rc=$?; fi
+  if ! grep -Eqi 'ResourceNotFound|NotFound|could not be found|was not found' "$err"; then
+    cat "$err" >&2; rm -f "$err"; return "$rc"
+  fi
+  rm -f "$err"
+  return 10
+}
+network_step() {
+  local kind="$1"; shift
+  local -a identity create_args prefix
+  read -r -a prefix <<< "$kind"
+  while [[ "$1" != -- ]]; do identity+=("$1"); shift; done
+  shift; create_args=("$@")
+  local rc
+  if ensure_network_resource "$kind" "${identity[@]}"; then return 0; else rc=$?; fi
+  [[ "$rc" == 10 ]] || return "$rc"
+  az_retry network "${prefix[@]}" create "${identity[@]}" "${create_args[@]}" -o none
+}
+wait_vm() {
+  msg 'Waiting for VM provisioning (safe to rerun create if the connection fails)...'
+  az_retry vm wait -g "$RG" -n "$VM" --created --interval 15 --timeout 900
+}
 create_dualstack() {
   # Azure IPv6 subnet is ULA; public IPv6 is attached to secondary NIC IP config.
   # Explicit dual-stack networking follows Microsoft Azure CLI guidance.
-  az network vnet create -g "$RG" -n "$VNET" -l "$REGION" \
-    --address-prefixes '10.250.0.0/16' 'fd00:250::/48' -o none || return 1
-  az network vnet subnet create -g "$RG" --vnet-name "$VNET" -n "$SUBNET" \
-    --address-prefixes '10.250.0.0/24' 'fd00:250::/64' -o none || return 1
-  az network nsg create -g "$RG" -n "$NSG" -l "$REGION" -o none || return 1
-  # IPv4-only source restriction: IPv6 inbound SSH is not exposed.
-  az network nsg rule create -g "$RG" --nsg-name "$NSG" -n allow-ssh-ipv4 \
-    --priority 1000 --direction Inbound --access Allow --protocol Tcp \
-    --source-address-prefixes '0.0.0.0/0' --source-port-ranges '*' \
-    --destination-address-prefixes '*' --destination-port-ranges 22 -o none || return 1
-  az network public-ip create -g "$RG" -n "$PIP4" -l "$REGION" \
-    --sku Standard --allocation-method Static --version IPv4 -o none || return 1
-  az network public-ip create -g "$RG" -n "$PIP6" -l "$REGION" \
-    --sku Standard --allocation-method Static --version IPv6 -o none || return 1
-  az network nic create -g "$RG" -n "$NIC" -l "$REGION" \
-    --vnet-name "$VNET" --subnet "$SUBNET" --network-security-group "$NSG" \
-    --private-ip-address-version IPv4 --public-ip-address "$PIP4" -o none || return 1
-  az network nic ip-config create -g "$RG" --nic-name "$NIC" -n ipconfig-ipv6 \
-    --vnet-name "$VNET" --subnet "$SUBNET" \
-    --private-ip-address-version IPv6 --public-ip-address "$PIP6" -o none || return 1
-  az vm create -g "$RG" -n "$VM" -l "$REGION" --nics "$NIC" \
+  network_step 'vnet' -g "$RG" -n "$VNET" -- -l "$REGION" --address-prefixes '10.250.0.0/16' 'fd00:250::/48' || return 1
+  network_step 'vnet subnet' -g "$RG" --vnet-name "$VNET" -n "$SUBNET" -- --address-prefixes '10.250.0.0/24' 'fd00:250::/64' || return 1
+  network_step 'nsg' -g "$RG" -n "$NSG" -- -l "$REGION" || return 1
+  network_step 'nsg rule' -g "$RG" --nsg-name "$NSG" -n allow-ssh-ipv4 -- --priority 1000 --direction Inbound --access Allow --protocol Tcp --source-address-prefixes '0.0.0.0/0' --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 || return 1
+  network_step 'public-ip' -g "$RG" -n "$PIP4" -- -l "$REGION" --sku Standard --allocation-method Static --version IPv4 || return 1
+  network_step 'public-ip' -g "$RG" -n "$PIP6" -- -l "$REGION" --sku Standard --allocation-method Static --version IPv6 || return 1
+  network_step 'nic' -g "$RG" -n "$NIC" -- -l "$REGION" --vnet-name "$VNET" --subnet "$SUBNET" --network-security-group "$NSG" --private-ip-address-version IPv4 --public-ip-address "$PIP4" || return 1
+  network_step 'nic ip-config' -g "$RG" --nic-name "$NIC" -n ipconfig-ipv6 -- --vnet-name "$VNET" --subnet "$SUBNET" --private-ip-address-version IPv6 --public-ip-address "$PIP6" || return 1
+  az_retry vm create -g "$RG" -n "$VM" -l "$REGION" --nics "$NIC" \
     --image "$IMAGE" --size "$SIZE" --admin-username "$USER_NAME" \
     --authentication-type ssh --ssh-key-values "$KEY.pub" \
     --storage-sku StandardSSD_LRS --os-disk-size-gb 30 \
-    --os-disk-delete-option Delete -o none || return 1
+    --os-disk-delete-option Delete --no-wait -o none || return 1
+  wait_vm
 }
 create_vm() {
-  local found; found=$(exists) || fail 'Cannot reach Azure; no changes made.'
+  local found; found=$(az_retry group exists --name "$RG" -o tsv) || fail 'Cannot reach Azure; no changes made.'
   if [[ "$found" == true ]]; then
     [[ "$(owner)" == "$OWNER_TAG" ]] || fail "Group $RG exists but is not script-owned."
-    if vm_exists; then msg 'VM already exists. No new VM will be created.'; info; return; fi
-    fail "Group $RG exists without VM. Check '$0 info' and delete it safely before retrying."
+    local vm_count
+    vm_count=$(az_retry vm list -g "$RG" --query "length([?name=='$VM'])" -o tsv) || fail 'Cannot verify VM state. No creation attempted.'
+    if [[ "$vm_count" == 1 ]]; then wait_vm || fail 'VM not ready; rerun create later.'; return; fi
+    [[ "$IPV6" == on ]] || fail 'Partial deployment found. Resume with AZ_VPS_IPV6=on, or inspect info.'
+    msg 'Resuming the script-owned dual-stack deployment.' 
   fi
   [[ "$IPV6" == on || "$IPV6" == off ]] || fail 'AZ_VPS_IPV6 must be on or off.'
   ensure_key
   msg "Subscription: $(az account show --query name -o tsv)"
   msg "Creating VM=$VM region=$REGION size=$SIZE IPv6=$IPV6 key=$KEY"
-  az group create -n "$RG" -l "$REGION" --tags "disposableVpsManager=$OWNER_TAG" -o none
+  az_retry group create -n "$RG" -l "$REGION" --tags "disposableVpsManager=$OWNER_TAG" -o none
   if [[ "$IPV6" == on ]]; then
     # Failure exits without deleting resources automatically: investigate billable partial deployments.
     if ! create_dualstack; then
-      msg "Creation failed. Resources may remain and incur charges. Run '$0 info', then '$0 delete' when safe."
+      msg "Creation failed. Resources may remain and incur charges. Rerun the same create command to resume; use info to inspect."
       exit 1
     fi
   else
@@ -133,7 +171,7 @@ create_vm() {
       --authentication-type ssh --ssh-key-values "$KEY.pub" \
       --storage-sku StandardSSD_LRS --os-disk-size-gb 30 \
       --os-disk-delete-option Delete --public-ip-sku Standard --nsg-rule SSH -o none; then
-      msg "Creation failed. Resources may remain and incur charges. Run '$0 info', then '$0 delete' when safe."
+      msg "Creation failed. Resources may remain and incur charges. Rerun the same create command to resume; use info to inspect."
       exit 1
     fi
   fi
