@@ -1,0 +1,65 @@
+name: Build VLESS dual-stack online update
+on:
+  push:
+    branches: [feature/vless-dualstack-online]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: vless-dualstack-online-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test source and scripts
+        run: |
+          go test ./...
+          go vet ./...
+          python3 tests/vless6_rules.py
+          python3 tests/vless6_install.py
+          for f in dualstack/*.sh update-vless-dualstack.sh; do sh -n "$f"; done
+          bash -n azure/azure-vps-vless.sh
+          bash -n azure/enable-vless-ipv6.sh
+      - name: Validate conversion with real sing-box 1.14
+        run: |
+          curl --http1.1 -fL --retry 3 https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-amd64.tar.gz -o /tmp/sb.tar.gz
+          echo '2375de6999f4f56ab46b4fc5ddf26a6aba1d3e61a0f4e7ddec2f4690457d5f63  /tmp/sb.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/sb.tar.gz -C /tmp
+          go build -o /tmp/u60-vless6-config ./cmd/u60-vless6-config
+          cp configs/mode11-full-proxy.example.json /tmp/mode11.json
+          python3 - <<'PY'
+          import json
+          p='/tmp/mode11.json'
+          c=json.load(open(p))
+          for o in c['outbounds']:
+              if o.get('type')=='vless':
+                  o['server']='127.0.0.1'
+                  o['uuid']='00000000-0000-4000-8000-000000000001'
+                  # Public placeholder only; no live node credentials are used.
+                  o['tls']['reality']['public_key']='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+                  o['tls']['reality']['short_id']='0123456789abcdef'
+          json.dump(c,open(p,'w'))
+          PY
+          U60_SING_BOX=/tmp/sing-box-1.14.0-linux-amd64/sing-box /tmp/u60-vless6-config /tmp/mode11.json /tmp/mode11-dualstack.json
+      - name: Build ARM64 and package online installer
+        run: |
+          mkdir -p dist/u60-vless-dualstack/bin
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o dist/u60-vless-dualstack/bin/u60-vless6-config ./cmd/u60-vless6-config
+          cp dualstack/*.sh dist/u60-vless-dualstack/
+          chmod 755 dist/u60-vless-dualstack/bin/* dist/u60-vless-dualstack/*.sh
+          cp VLESS-DUALSTACK.md dist/u60-vless-dualstack/
+          cd dist
+          tar -czf u60-vless-dualstack.tar.gz u60-vless-dualstack
+          sha256sum u60-vless-dualstack.tar.gz > SHA256SUMS
+      - name: Publish full online update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v2.3.0-vless-dualstack
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title 'U60 VLESS dual-stack online update' --notes-file VLESS-DUALSTACK.md
+          gh release upload "$TAG" dist/u60-vless-dualstack.tar.gz dist/SHA256SUMS --clobber
