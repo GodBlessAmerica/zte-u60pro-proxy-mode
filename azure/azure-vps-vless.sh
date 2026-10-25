@@ -396,10 +396,10 @@ if not matches:
  print(messages[-6000:],file=sys.stderr)
  raise SystemExit('Deployment did not return verified node parameters. VM remains; retry deploy-vless or inspect info.')
 p=json.loads(base64.b64decode(matches[-1]));ip=str(ipaddress.IPv4Address(sys.argv[2]));out=pathlib.Path(sys.argv[3]);out.mkdir(parents=True,exist_ok=True);out.chmod(0o700)
-tag='mode15-vless'
+tag='mode11-vless'
 cfg={'log':{'level':'info','timestamp':True},'dns':{'servers':[{'type':'https','tag':'dns-remote','server':'1.1.1.1','server_port':443,'path':'/dns-query','tls':{'enabled':True,'server_name':'cloudflare-dns.com'},'detour':tag}],'strategy':'ipv4_only'},'inbounds':[{'type':'redirect','tag':'tcp-redirect-in','listen':'0.0.0.0','listen_port':7893},{'type':'tun','tag':'udp-tun-in','interface_name':'u60udp0','address':['172.31.255.1/30'],'mtu':1300,'auto_route':False,'strict_route':False,'stack':'system'},{'type':'direct','tag':'dns4-proxy-in','listen':'0.0.0.0','listen_port':5353,'override_address':'1.1.1.1','override_port':53},{'type':'direct','tag':'dns6-proxy-in','listen':'::','listen_port':5354,'override_address':'1.1.1.1','override_port':53}],'outbounds':[{'type':'vless','tag':tag,'server':ip,'server_port':p['port'],'uuid':p['uuid'],'flow':'xtls-rprx-vision','packet_encoding':'xudp','tls':{'enabled':True,'server_name':p['sni'],'utls':{'enabled':True,'fingerprint':'chrome'},'reality':{'enabled':True,'public_key':p['public_key'],'short_id':p['short_id']}}},{'type':'direct','tag':'direct'}],'route':{'auto_detect_interface':True,'rules':[{'action':'sniff'},{'inbound':['dns4-proxy-in','dns6-proxy-in'],'action':'hijack-dns'},{'ip_is_private':True,'action':'route','outbound':'direct'}],'final':tag}}
 if p.get('proxy_ipv6',False):
- cfg['dns']['strategy']='prefer_ipv6'
+ # Client DNS stays IPv4-only even when the server has IPv6 egress.
  cfg['inbounds'].insert(1,{'type':'redirect','tag':'vless6-redirect-in','listen':'::','listen_port':7894})
  for ib in cfg['inbounds']:
   if ib['type']=='tun':ib['address'].append('fd75:60:0:168::1/126')
@@ -408,12 +408,12 @@ q=urllib.parse.urlencode({'encryption':'none','security':'reality','sni':p['sni'
 uri=f"vless://{p['uuid']}@{ip}:{p['port']}?{q}#Azure-U60-VLESS"
 def save(name,text):
  f=out/name;tmp=out/(name+'.tmp');tmp.write_text(text);tmp.chmod(0o600);os.replace(tmp,f)
-for name in ['mode15.json','mode11.json']:save(name,json.dumps(cfg,ensure_ascii=False,indent=2)+'\n')
+save('mode11.json',json.dumps(cfg,ensure_ascii=False,indent=2)+'\n')
 save('vless.txt',uri+'\n');save('node-parameters.json',json.dumps({'server':ip,**p},indent=2)+'\n')
 print('Guest deployment verified. Proxy IPv6: '+str(p.get('proxy_ipv6',False)))
 if p.get('proxy_ipv6',False):print('Install the U60 VLESS dual-stack adapter before activating this mode11.json. Keep IPv6 Guard ON.')
 print('Files: '+str(out));print('Use mode11.json with existing U60 Mode 11 for automatic UDP routing.')
-print('mode15.json follows the supplied template; Mode 15 requires separate U60 UDP support.')
+print('Client DNS: ipv4_only. Only mode11.json is generated; old local mode15.json files are not modified.')
 print('VLESS link:\n'+uri)
 PY
 }
@@ -475,7 +475,8 @@ Options:
   AZ_VPS_IPV6=off (Azure networking during creation only)
   AZ_VPS_PROXY_IPV6=on|off (default off; on verifies server IPv6 then exports dual-stack JSON)
   Original AZ_VPS_RG/VM/REGION/SIZE/IMAGE/USER/KEY options are preserved.
-Outputs: mode15.json, compatible mode11.json, vless.txt, node-parameters.json.
+Outputs: mode11.json (DNS ipv4_only), vless.txt, node-parameters.json.
+  No Mode 15 output. Existing local mode15.json files are left untouched.
 Run on Linux/WSL/macOS with Azure CLI and python3; az login first.
 Needs VM Agent Run Command permissions and HTTPS download access in the guest.
 delete removes the entire owned resource group after confirmation; local keys and exports remain.
