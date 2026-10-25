@@ -16,6 +16,7 @@ for failure in (False,True):
   (state/'current_mode').write_text('5\n')
   def exe(path,text):path.write_text('#!/bin/sh\n'+text+'\n');path.chmod(0o755)
   original='#!/bin/sh\nexit 0\n';(scripts/'traffic.sh').write_text(original);(scripts/'traffic.sh').chmod(0o755)
+  exe(tools/'id','echo 0')
   exe(b/'sing-box','exit 0')
   exe(ctl/'u60proxy',f'''if [ "$3" = 11 ] && [ "$FAIL_MODE11" = yes ]; then exit 1; fi
 cp "{cfg}/mode$3.json" "{rt}/active.json"
