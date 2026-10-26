@@ -24,6 +24,7 @@ for f in "$PROXY_LIST" "$DNS_LIST" "$UDP_LIST" "$IPV6_LIST" "$DIRECT_LIST"; do [
 [ -f "$MODE_FILE" ] || echo selective > "$MODE_FILE"
 have_ip6tables(){ command -v ip6tables >/dev/null 2>&1; }
 clear_rules(){
+ [ ! -x "$BASE/scripts/ssh-ipv6.sh" ] || "$BASE/scripts/ssh-ipv6.sh" clear
  iptables -t nat -D PREROUTING -i "$LAN" -j "$DNS4_CHAIN" 2>/dev/null || true
  iptables -t nat -D PREROUTING -i "$LAN" -j "$NAT_CHAIN" 2>/dev/null || true
  iptables -t nat -F "$DNS4_CHAIN" 2>/dev/null || true; iptables -t nat -X "$DNS4_CHAIN" 2>/dev/null || true
@@ -65,6 +66,7 @@ apply_rules(){
  fi
  iptables -t nat -I PREROUTING 1 -i "$LAN" -j "$NAT_CHAIN"; iptables -t nat -I PREROUTING 1 -i "$LAN" -j "$DNS4_CHAIN"; iptables -I FORWARD 1 -i "$LAN" -j "$GUARD4_CHAIN"; iptables -I INPUT 1 -i "$LAN" -j "$INPUT4_CHAIN"
  if have_ip6tables; then ip6tables -t nat -I PREROUTING 1 -i "$LAN" -j "$DNS6_CHAIN"; ip6tables -I FORWARD 1 -i "$LAN" -j "$GUARD6_CHAIN"; ip6tables -I INPUT 1 -i "$LAN" -j "$INPUT6_CHAIN"; fi
+ [ ! -x "$BASE/scripts/ssh-ipv6.sh" ] || "$BASE/scripts/ssh-ipv6.sh" apply
 }
 status(){ echo "traffic_mode=$(cat "$MODE_FILE" 2>/dev/null || echo off)"; for f in proxy_devices dns_devices udp_devices ipv6_devices; do printf '%s=' "$f"; tr '\n' ' ' < "$RUNTIME/$f" 2>/dev/null | sed 's/[[:space:]]*$//'; echo; done; }
 case "${1:-status}" in apply|selective) echo selective > "$MODE_FILE"; apply_rules;; off|clear) echo off > "$MODE_FILE"; clear_rules;; on) echo all > "$MODE_FILE"; apply_rules;; status) status;; *) echo "usage: traffic.sh apply|selective|on|off|clear|status" >&2; exit 2;; esac
