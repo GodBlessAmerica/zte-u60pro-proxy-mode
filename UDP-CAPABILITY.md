@@ -1,40 +1,57 @@
-# UDP capability preview (mode independent)
+# U60 Pro v2.1.3 — mode-independent UDP capability
 
-This update targets the ZTE U60 Pro with the 2.1.2 control plane.
+## Supported installation type
 
-## Why
-The original control plane enabled UDP TUN only when the numeric mode was 11. Mode 12 and any new mode disabled it even if its sing-box JSON had a compatible TUN.
+**v2.1.3-udp-capability is an upgrade for existing compatible ZTE U60 Pro / MU5250 ARM64 devices. It is not a factory-fresh installation package or an installer for arbitrary OpenWrt devices.** The current release contains the rebuilt `u60proxy` ARM64 binary, `proxy-mode` launcher, `traffic.sh`, an upgrade script and a rollback script. It does not provide the full pre-existing data plane, sing-box binary, or per-device production mode configuration.
 
-## Changes
-- Go CLI checks the **active JSON** for an `udp-tun-in` TUN inbound bound to `u60udp0`, and a `route.final` referencing a VLESS outbound with `packet_encoding: xudp`.
-- Shell mode start/restart uses that capability check instead of mode number.
-- An independent `U60PM_UDP_FAIL` FORWARD chain rejects **public IPv4 UDP not going to u60udp0** for clients with TCP proxy enabled. This is independent of the legacy `udp_quic_guard` switch.
-- Existing private `modeN.json`, VLESS credentials, device policy, sing-box binary and firmware are not modified.
+See [README.md](README.md#installation-existing-device-versus-clean-device) for supported update and clean-device prerequisites.
 
-## Limitations
-Not all UDP configurations are supported. Any explicit route policy, rule-set or other advanced routing that bypasses the default route requires separate validation. IPv6 protection continues to rely on existing per-device IPv6 guard rules. A real device-side egress leak test is required before calling this leak-free.
+## Why this upgrade exists
 
-## Installation
-Download the `u60proxy-udp-capability-preview.tar.gz` release asset from GitHub, transfer to the device, then from a root SSH shell:
+Legacy controller code enabled the UDP TUN only for numeric Mode 11. Switching to Mode 12 disabled the TUN, although Mode 12 already contained a compatible sing-box TUN inbound and VLESS XUDP final outbound.
+
+The updated controller checks the active `/data/proxy-mode/runtime/active.json` configuration instead of the mode number:
+- `inbounds`: `type: tun`, `tag: udp-tun-in`, `interface_name: u60udp0`
+- `route.final`: names a `vless` outbound with `packet_encoding: xudp`
+- No conflicting explicit route override for `udp-tun-in`
+
+Matching configurations can enable UDP TUN regardless of their numeric mode ID. Non-matching configurations are not automatically converted.
+
+## Existing-device upgrade
+
+Run from a LAN SSH session as root; do not depend on the proxy for access during the change:
 
 ```sh
-cd /tmp
-tar -xzf u60proxy-udp-capability-preview.tar.gz
-cd u60proxy-udp-capability-preview
-sh ./install-udp-capability.sh
-/data/proxy-mode/bin/proxy-mode status
+wget -O /tmp/update-udp-capability.sh https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/main/update-udp-capability.sh
+sh /tmp/update-udp-capability.sh
 ```
 
-Install from local LAN, not over a connection that depends on the proxy. The script backs up replaced files under `/data/u60proxy/backups/` and prints the path. Roll back with `sh ./rollback-udp-capability.sh`.
+The updater downloads [v2.1.3-udp-capability](https://github.com/GodBlessAmerica/zte-u60pro-proxy-mode/releases/tag/v2.1.3-udp-capability), verifies its SHA-256, checks for a compatible ARM64 installation, and backs up the replaced files. Private `modeN.json`, credentials, saved policies, firmware, and the sing-box binary are not replaced.
 
-## Verify
-Set a tested VLESS mode that has compatible JSON and enable the required device switches. Check:
+## Verification
 
 ```sh
 /data/u60proxy/bin/u60proxy udp-capable
+echo "capability_exit_code=$?"
 /data/proxy-mode/scripts/udp-tun.sh status
 ip -4 rule show
+ip -4 route show table 167
 iptables -nvL U60PM_UDP_FAIL
+ip6tables -nvL U60PM_GUARD6
 ```
 
-Check that `udp_tun_chain`, `udp_policy_rule`, `udp_tun_route`, and `udp_fail_closed` are all `yes`. Test both TCP and UDP traffic as well as WAN egress on the device. A working TUN path does not by itself prove there is no leak.
+A compatible active VLESS profile should return exit code 0 and report `full_proxy_udp=on`, `udp_tun_chain=yes`, `udp_policy_rule=yes`, `udp_tun_route=yes`, and `udp_fail_closed=yes`. Check the sing-box logs for `inbound/tun[udp-tun-in]` and the correct VLESS outbound tag with packet connections. Perform separate real-world IP/DNS, WebRTC, IPv6 and WAN-egress checks.
+
+The independent `U60PM_UDP_FAIL` IPv4 FORWARD filter rejects public UDP forwarded directly to non-TUN interfaces for devices with TCP proxy enabled; local-network destinations are excluded. Existing IPv6 protection remains a separate per-device guard.
+
+## Rollback
+
+The updater prints its extracted directory under `/tmp/u60proxy-udp-update-*`. Execute that directory's `rollback-udp-capability.sh` as root to restore the most recent stored backup, recorded in `/data/u60proxy/runtime/udp-capability-backup`. Reconnect by LAN SSH if the controller restarts.
+
+## Clean-device limitation
+
+A new device must first have a compatible vendor firmware, root access, persistent `/data` filesystem, core `/data/proxy-mode` scripts and sing-box, and a working base `/data/u60proxy` installation. The GitHub repository currently does not publish a verified end-to-end, one-command v2.1.3 clean-install image. The updater intentionally refuses a device where these prerequisites are missing. Do not treat the legacy `bootstrap.sh` as a validated all-in-one installer.
+
+## Privacy limitations
+
+Successful TUN interception and the installed leak guards are not proof of complete leak freedom. Advanced routing rules, DNS over HTTPS, device-specific forwarding, and temporary firewall reset events need separate tests. Never upload real VLESS secrets, UUIDs, private keys, server credentials or backups to the public repository.
