@@ -321,6 +321,40 @@ func run(path string, args ...string) error {
 	c.Stderr = os.Stderr
 	return c.Run()
 }
+// udpTUNCapable validates the active sing-box route before allowing UDP to use
+// the shared u60udp0 dataplane. Mode numbers are deliberately not consulted.
+func udpTUNCapable(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil { return err }
+	var c struct {
+		Inbounds []struct { Type string `json:"type"`; Tag string `json:"tag"`; InterfaceName string `json:"interface_name"` } `json:"inbounds"`
+		Outbounds []struct { Type string `json:"type"`; Tag string `json:"tag"`; PacketEncoding string `json:"packet_encoding"` } `json:"outbounds"`
+		Route struct {
+			Final string `json:"final"`
+			Rules []struct { Inbound []string `json:"inbound"`; Outbound string `json:"outbound"`; Action string `json:"action"` } `json:"rules"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(b, &c); err != nil { return err }
+	hasTUN := false
+	for _, in := range c.Inbounds {
+		if in.Type == "tun" && in.Tag == "udp-tun-in" && in.InterfaceName == "u60udp0" { hasTUN = true }
+	}
+	if !hasTUN { return fmt.Errorf("missing udp-tun-in (tun/u60udp0)") }
+	vless := false
+	for _, out := range c.Outbounds {
+		if out.Tag == c.Route.Final && out.Type == "vless" && out.PacketEncoding == "xudp" { vless = true }
+	}
+	if !vless { return fmt.Errorf("route.final must select a VLESS outbound with xudp packet_encoding") }
+	for _, rule := range c.Route.Rules {
+		for _, tag := range rule.Inbound {
+			if tag == "udp-tun-in" && rule.Outbound != "" && rule.Outbound != c.Route.Final {
+				return fmt.Errorf("udp-tun-in has a non-VLESS route override")
+			}
+		}
+	}
+	return nil
+}
+
 func applyLocked(p map[string]Policy) error {
 	if e := writeList("proxy_devices", p, func(q Policy) bool { return q.Proxy }); e != nil {
 		return e
@@ -340,13 +374,14 @@ func applyLocked(p map[string]Policy) error {
 			return e
 		}
 	}
-	m := currentMode()
-	if m == 11 {
-		if _, e := os.Stat("/sys/class/net/u60udp0"); e == nil {
-			_ = run(oldBase+"/scripts/udp-tun.sh", "apply")
+	if e := udpTUNCapable(oldBase + "/runtime/active.json"); e == nil {
+		if e = run(oldBase+"/scripts/udp-tun.sh", "apply"); e != nil {
+			return fmt.Errorf("UDP TUN apply failed: %w", e)
 		}
 	} else {
-		_ = run(oldBase+"/scripts/udp-tun.sh", "off")
+		if e2 := run(oldBase+"/scripts/udp-tun.sh", "off"); e2 != nil {
+			return fmt.Errorf("UDP TUN cleanup failed: %w", e2)
+		}
 	}
 	return nil
 }
@@ -756,6 +791,8 @@ func main() {
 		e = scan()
 	case "apply":
 		e = apply()
+	case "udp-capable":
+		e = udpTUNCapable(oldBase + "/runtime/active.json")
 	case "migrate":
 		e = migrate()
 	case "devices":
