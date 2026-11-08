@@ -17,10 +17,19 @@ cp -p "$BASE/bin/proxy-mode" "$BACKUP/proxy-mode"
 cp -p "$BASE/scripts/traffic.sh" "$BACKUP/traffic.sh"
 echo "$BACKUP" > "$CONTROL/runtime/udp-capability-backup"
 echo "Backup: $BACKUP"
-cp "$ROOT/bin/u60proxy" "$CONTROL/bin/u60proxy"
-cp "$ROOT/bin/proxy-mode" "$BASE/bin/proxy-mode"
-cp "$ROOT/scripts/traffic.sh" "$BASE/scripts/traffic.sh"
-chmod 755 "$CONTROL/bin/u60proxy" "$BASE/bin/proxy-mode" "$BASE/scripts/traffic.sh"
+# Replace running executables atomically: copying directly onto a running
+# Go binary may fail with "Text file busy" on the vendor OpenWrt firmware.
+for pair in \
+    "$ROOT/bin/u60proxy:$CONTROL/bin/u60proxy" \
+    "$ROOT/bin/proxy-mode:$BASE/bin/proxy-mode" \
+    "$ROOT/scripts/traffic.sh:$BASE/scripts/traffic.sh"; do
+    src="${pair%%:*}"
+    dst="${pair#*:}"
+    tmp="${dst}.udp-update.$"
+    cp "$src" "$tmp"
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$dst"
+done
 # Apply safely: traffic.sh creates an independent UDP fail-closed chain before
 # any change to the TUN; saved mode configs, credentials and device policy remain.
 "$CONTROL/bin/u60proxy" apply
