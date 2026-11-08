@@ -1,0 +1,45 @@
+name: Build U60 Pro UDP capability release
+on:
+  push:
+    branches: [main]
+    paths:
+      - cmd/u60proxy/**
+      - bin/proxy-mode
+      - scripts/traffic.sh
+      - install-udp-capability.sh
+      - rollback-udp-capability.sh
+      - update-udp-capability.sh
+      - .github/workflows/udp-capability-release.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Validate
+        run: |
+          go test ./...
+          go vet ./...
+          for f in bin/proxy-mode scripts/traffic.sh install-udp-capability.sh rollback-udp-capability.sh update-udp-capability.sh; do sh -n "$f"; done
+      - name: Build and package ARM64 U60 Pro
+        run: |
+          mkdir -p dist/u60proxy-udp-capability/bin dist/u60proxy-udp-capability/scripts
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/u60proxy-udp-capability/bin/u60proxy ./cmd/u60proxy
+          cp bin/proxy-mode dist/u60proxy-udp-capability/bin/
+          cp scripts/traffic.sh dist/u60proxy-udp-capability/scripts/
+          cp install-udp-capability.sh rollback-udp-capability.sh UDP-CAPABILITY.md dist/u60proxy-udp-capability/
+          cd dist
+          tar -czf u60proxy-udp-capability.tar.gz u60proxy-udp-capability
+          sha256sum u60proxy-udp-capability.tar.gz > SHA256SUMS
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v2.1.3-udp-capability
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "U60 Proxy Mode v2.1.3 - UDP capability" --notes-file UDP-CAPABILITY.md
+          gh release upload "$TAG" dist/u60proxy-udp-capability.tar.gz dist/SHA256SUMS --clobber
