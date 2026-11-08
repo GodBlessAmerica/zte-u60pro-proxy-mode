@@ -10,6 +10,7 @@ NAT_CHAIN=U60PM_REDIRECT
 DNS4_CHAIN=U60PM_DNS4
 DNS6_CHAIN=U60PM_DNS6
 GUARD4_CHAIN=U60PM_GUARD4
+UDP_FAIL_CHAIN=U60PM_UDP_FAIL
 GUARD6_CHAIN=U60PM_GUARD6
 INPUT4_CHAIN=U60PM_INPUT4
 INPUT6_CHAIN=U60PM_INPUT6
@@ -24,6 +25,8 @@ for f in "$PROXY_LIST" "$DNS_LIST" "$UDP_LIST" "$IPV6_LIST" "$DIRECT_LIST"; do [
 [ -f "$MODE_FILE" ] || echo selective > "$MODE_FILE"
 have_ip6tables(){ command -v ip6tables >/dev/null 2>&1; }
 clear_rules(){
+ iptables -D FORWARD -i "$LAN" -j "$UDP_FAIL_CHAIN" 2>/dev/null || true
+ iptables -F "$UDP_FAIL_CHAIN" 2>/dev/null || true; iptables -X "$UDP_FAIL_CHAIN" 2>/dev/null || true
  iptables -t nat -D PREROUTING -i "$LAN" -j "$DNS4_CHAIN" 2>/dev/null || true
  iptables -t nat -D PREROUTING -i "$LAN" -j "$NAT_CHAIN" 2>/dev/null || true
  iptables -t nat -F "$DNS4_CHAIN" 2>/dev/null || true; iptables -t nat -X "$DNS4_CHAIN" 2>/dev/null || true
@@ -37,6 +40,8 @@ clear_rules(){
  fi
 }
 base(){
+ iptables -N "$UDP_FAIL_CHAIN" 2>/dev/null || true; iptables -F "$UDP_FAIL_CHAIN"
+ for n in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8; do iptables -A "$UDP_FAIL_CHAIN" -d "$n" -j RETURN; done
  iptables -t nat -N "$NAT_CHAIN" 2>/dev/null || true; iptables -t nat -F "$NAT_CHAIN"
  for n in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8; do iptables -t nat -A "$NAT_CHAIN" -d "$n" -j RETURN; done
  iptables -t nat -N "$DNS4_CHAIN" 2>/dev/null || true; iptables -t nat -F "$DNS4_CHAIN"
@@ -59,10 +64,13 @@ apply_rules(){
  else
    while IFS= read -r s; do [ -n "$s" ] || continue; sel_rule "$NAT_CHAIN" "iptables -t nat" "$s" "-p tcp" "-j REDIRECT --to-ports $PORT"; done < "$PROXY_LIST"
    while IFS= read -r s; do [ -n "$s" ] || continue; sel_rule "$DNS4_CHAIN" "iptables -t nat" "$s" "-p udp --dport 53" "-j REDIRECT --to-ports $DNS4_PORT"; sel_rule "$DNS4_CHAIN" "iptables -t nat" "$s" "-p tcp --dport 53" "-j REDIRECT --to-ports $DNS4_PORT"; if have_ip6tables && [ "${s%%:*}" = mac ]; then v="${s#*:}"; ip6tables -t nat -A "$DNS6_CHAIN" -m mac --mac-source "$v" -p udp --dport 53 -j REDIRECT --to-ports "$DNS6_PORT"; ip6tables -t nat -A "$DNS6_CHAIN" -m mac --mac-source "$v" -p tcp --dport 53 -j REDIRECT --to-ports "$DNS6_PORT"; fi; done < "$DNS_LIST"
-   while IFS= read -r s; do [ -n "$s" ] || continue; sel_rule "$GUARD4_CHAIN" iptables "$s" "-p udp" "-j RETURN"; done < "$UDP_LIST"
+   # Fail-closed for every TCP-proxied client, independent of UDP toggle.
+   # TUN forwarding is accepted by udp-tun.sh; all other public UDP is rejected.
+   while IFS= read -r s; do [ -n "$s" ] || continue; sel_rule "$UDP_FAIL_CHAIN" iptables "$s" "-p udp ! -o u60udp0" "-j REJECT"; done < "$PROXY_LIST"
    while IFS= read -r s; do [ -n "$s" ] || continue; sel_rule "$GUARD4_CHAIN" iptables "$s" "-p tcp" "-j RETURN"; sel_rule "$GUARD4_CHAIN" iptables "$s" "" "-j REJECT"; done < "$PROXY_LIST"
    if have_ip6tables; then while IFS= read -r s; do [ -n "$s" ] || continue; [ "${s%%:*}" = mac ] || continue; ip6tables -A "$GUARD6_CHAIN" -m mac --mac-source "${s#*:}" -j REJECT; done < "$IPV6_LIST"; fi
  fi
+ iptables -I FORWARD 1 -i "$LAN" -j "$UDP_FAIL_CHAIN"
  iptables -t nat -I PREROUTING 1 -i "$LAN" -j "$NAT_CHAIN"; iptables -t nat -I PREROUTING 1 -i "$LAN" -j "$DNS4_CHAIN"; iptables -I FORWARD 1 -i "$LAN" -j "$GUARD4_CHAIN"; iptables -I INPUT 1 -i "$LAN" -j "$INPUT4_CHAIN"
  if have_ip6tables; then ip6tables -t nat -I PREROUTING 1 -i "$LAN" -j "$DNS6_CHAIN"; ip6tables -I FORWARD 1 -i "$LAN" -j "$GUARD6_CHAIN"; ip6tables -I INPUT 1 -i "$LAN" -j "$INPUT6_CHAIN"; fi
 }
