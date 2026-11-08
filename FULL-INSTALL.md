@@ -22,7 +22,7 @@
 ## Quick install
 
 ```sh
-wget -4 -T 30 -O /tmp/u60pro-full-install.sh https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/feature/full-install-u60pro-v2.1.3/full-install/bootstrap-full.sh
+wget -4 -T 30 -O /tmp/u60pro-full-install.sh https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/main/full-install/bootstrap-full.sh
 sh /tmp/u60pro-full-install.sh
 ```
 
