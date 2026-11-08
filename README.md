@@ -2,7 +2,7 @@
 
 `u60proxy` is a portable sing-box proxy manager for the ZTE U60 Pro / MU5250 family.
 
-Current stable release: **2.1.2** (Wi-Fi relay not included yet).
+Current maintained update release: **v2.1.3-udp-capability** (for existing compatible installations; **not** a clean-install image). Wi-Fi relay is not included.
 
 This repository is intentionally separate from `GodBlessAmerica/openwrt-proxy-mode-suite`; U60 Pro specific work lives here.
 
@@ -18,7 +18,7 @@ This repository is intentionally separate from `GodBlessAmerica/openwrt-proxy-mo
 
 ## Stable architecture
 
-Mode 11 is the validated full-proxy path:
+Modes 11 and 12 have been device-tested for UDP TUN → VLESS XUDP forwarding. This is the full-proxy path:
 
 ```text
 TCP -> REDIRECT :7893 -> sing-box -> proxy outbound
@@ -58,18 +58,50 @@ Version 2.1.2 adds an editor directly to the 8081 control panel for existing `/d
 
 Because mode JSON files can contain private server details, the 8081 panel should only be used on a trusted LAN until authentication is added.
 
-## Install
+## Installation: existing device versus clean device
 
-The release package contains the prebuilt ARM64 `u60proxy` binary and the validated installer.
+**Important:** `v2.1.3-udp-capability` is an **incremental update**, not a full factory-fresh install kit. It requires the existing ZTE U60 Pro data-plane core at `/data/proxy-mode`, an installed sing-box binary, the existing `/data/u60proxy` control plane, and the supported firewall and network layout. It cannot install these prerequisites from scratch.
+
+### A. Update an existing compatible U60 Pro (recommended)
+
+Use a **LAN SSH session as root**. Ensure you can reconnect locally if the proxy restarts.
 
 ```sh
-cd /tmp
-tar -xzf u60proxy-v2.1.2-final-no-relay.tar.gz
-cd u60proxy-v2.1.2-final
-./install.sh
+wget -O /tmp/update-udp-capability.sh \
+https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/main/update-udp-capability.sh
+sh /tmp/update-udp-capability.sh
 ```
 
-The installer backs up the existing control plane and data-plane adapter scripts before changing them. Existing private `modeN.json` files are preserved.
+The script downloads the published ARM64 `v2.1.3-udp-capability` archive, verifies its SHA-256, checks CPU architecture and existing paths, backs up the replaced components and applies the update. **Existing private `modeN.json` configurations, credentials, sing-box and device policies are preserved.** It is designed for compatible ZTE U60 Pro / MU5250 firmware, **not arbitrary OpenWrt devices or phones**.
+
+Release and assets: [v2.1.3-udp-capability](https://github.com/GodBlessAmerica/zte-u60pro-proxy-mode/releases/tag/v2.1.3-udp-capability).
+
+After installation, check:
+
+```sh
+/data/u60proxy/bin/u60proxy udp-capable
+echo "capability_exit_code=$?"
+/data/proxy-mode/scripts/udp-tun.sh status
+iptables -nvL U60PM_UDP_FAIL
+ip -4 rule show
+ip -4 route show table 167
+```
+
+For a compatible active VLESS profile, `capability_exit_code=0`, `full_proxy_udp=on` and all four UDP TUN readiness fields should be `yes`. A compatible profile needs the `udp-tun-in` inbound bound to `u60udp0`, plus a VLESS `xudp` final outbound. The mode number (11, 12, 13…) does **not** decide whether UDP TUN is enabled. Test actual DNS, TCP/UDP and WAN egress before trusting any profile for privacy-sensitive use.
+
+For rollback, find the extracted package under `/tmp/u60proxy-udp-update-*` (path printed by the updater), then execute its `rollback-udp-capability.sh`. Original component backups are stored under `/data/u60proxy/backups/udp-capability-YYYYMMDD-HHMMSS`.
+
+### B. Brand-new U60 Pro (clean install)
+
+The **target maintained version is still v2.1.3**, but there is **no verified one-command clean installer** in the current Releases:
+
+1. Prepare a supported U60 Pro / MU5250 with root access, compatible vendor firmware, the `/data` persistent filesystem, and LAN SSH access.
+2. Install and validate the base `/data/proxy-mode` data plane, sing-box, `proxy-mode` launcher, required startup scripts, and vendor-compatible firewall rules. Do not modify firmware partitions. The old `bootstrap.sh` is for the legacy core, **not** a verified all-in-one v2.1.3 factory installation.
+3. Install the 2.1.x `u60proxy` control plane with its `install.sh` **only after** the core is present. Its installer requires a prebuilt ARM64 `bin/u60proxy` and supporting files. The repository does **not** currently publish a ready-to-use v2.1.2 base Release asset; do not assume this step can be completed by downloading the v2.1.3 patch alone.
+4. With the base controller and sing-box working, follow **A** to update to `v2.1.3-udp-capability`. Add private VLESS credentials only on-device, not in GitHub.
+5. Verify both TCP and UDP, IPv6 blocking, DNS, and public WAN IP before daily use.
+
+**Do not run the v2.1.3 updater on a factory-fresh device expecting it to install everything.** It intentionally refuses if the existing control plane and sing-box are missing. A separate end-to-end factory installer and full-device validation are still needed.
 
 ## CLI
 
@@ -114,19 +146,6 @@ On the tested vendor firmware, a custom procd service was not reliable at cold b
 
 Never commit production server addresses, UUIDs, Reality keys, passwords, SSH keys, Wi-Fi credentials, web tokens, or device backups. Repository configs must contain examples only.
 
-## UDP capability update (v2.1.3)
+## Additional UDP capability details
 
-Mode 11, 12, and new VLESS configurations can share the UDP TUN dataplane. This feature detects the active JSON's `udp-tun-in` / `u60udp0` and VLESS `xudp` routing instead of hard-coding a mode number.
-
-**Supported hardware:** ZTE U60 Pro / MU5250 ARM64 devices with an existing compatible `/data/proxy-mode` and `/data/u60proxy` installation. This is **not** a generic installer for arbitrary routers, phones or CPU architectures.
-
-To update from a root LAN SSH session:
-
-```sh
-wget -O /tmp/update-udp-capability.sh https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/main/update-udp-capability.sh
-sh /tmp/update-udp-capability.sh
-```
-
-The updater downloads the official release and verifies its SHA256 before applying. It backs up the replaced files and preserves all private `modeN.json` configuration and per-device policies. For rollback use the script included in the extracted package. See [UDP-CAPABILITY.md](UDP-CAPABILITY.md).
-
-Neither a working TUN nor these filters alone guarantee zero egress leakage; verify traffic and WAN egress on the device.
+See [UDP-CAPABILITY.md](UDP-CAPABILITY.md) for how mode-independent UDP selection works, requirements, verification, limitations and rollback.
