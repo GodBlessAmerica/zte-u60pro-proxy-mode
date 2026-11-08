@@ -48,8 +48,10 @@ apply_full_proxy() {
     # enabling Mode 11 or it would overwrite the working TUN state back to off.
     [ -x "$LEGACY_TPROXY" ] && "$LEGACY_TPROXY" off >/dev/null 2>&1 || true
 
-    mode="$(current_mode)"
-    if [ "$mode" = "11" ]; then
+    # The Go CLI validates active.json (TUN inbound + VLESS XUDP final)
+    # and exits nonzero for unsupported configs. No mode-number special case.
+    if [ -x /data/u60proxy/bin/u60proxy ] &&
+       /data/u60proxy/bin/u60proxy udp-capable >/dev/null 2>&1; then
         "$UDP_TUN" apply
     else
         "$UDP_TUN" off >/dev/null 2>&1 || true

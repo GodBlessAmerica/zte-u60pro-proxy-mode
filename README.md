@@ -113,3 +113,20 @@ On the tested vendor firmware, a custom procd service was not reliable at cold b
 ## Secrets
 
 Never commit production server addresses, UUIDs, Reality keys, passwords, SSH keys, Wi-Fi credentials, web tokens, or device backups. Repository configs must contain examples only.
+
+## UDP capability update (v2.1.3)
+
+Mode 11, 12, and new VLESS configurations can share the UDP TUN dataplane. This feature detects the active JSON's `udp-tun-in` / `u60udp0` and VLESS `xudp` routing instead of hard-coding a mode number.
+
+**Supported hardware:** ZTE U60 Pro / MU5250 ARM64 devices with an existing compatible `/data/proxy-mode` and `/data/u60proxy` installation. This is **not** a generic installer for arbitrary routers, phones or CPU architectures.
+
+To update from a root LAN SSH session:
+
+```sh
+wget -O /tmp/update-udp-capability.sh https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/main/update-udp-capability.sh
+sh /tmp/update-udp-capability.sh
+```
+
+The updater downloads the official release and verifies its SHA256 before applying. It backs up the replaced files and preserves all private `modeN.json` configuration and per-device policies. For rollback use the script included in the extracted package. See [UDP-CAPABILITY.md](UDP-CAPABILITY.md).
+
+Neither a working TUN nor these filters alone guarantee zero egress leakage; verify traffic and WAN egress on the device.
