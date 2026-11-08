@@ -6,12 +6,20 @@ BASE=/data/proxy-mode
 CONTROL=/data/u60proxy
 BACKUP="$CONTROL/backups/udp-capability-$(date +%Y%m%d-%H%M%S)"
 [ "$(id -u)" = 0 ] || { echo "root required" >&2; exit 1; }
+ARCH="$(uname -m)"
+case "$ARCH" in aarch64|arm64) ;; *) echo "Unsupported architecture: $ARCH (requires ARM64 U60 Pro)" >&2; exit 1;; esac
+[ -d /sys/class/net/br-lan ] || { echo "Missing br-lan: not a supported U60 Pro data plane" >&2; exit 1; }
+command -v iptables >/dev/null 2>&1 || { echo "iptables unavailable" >&2; exit 1; }
+command -v ip >/dev/null 2>&1 || { echo "iproute2 unavailable" >&2; exit 1; }
 for f in "$ROOT/bin/u60proxy" "$ROOT/bin/proxy-mode" "$ROOT/scripts/traffic.sh"; do
     [ -s "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
+[ -x "$CONTROL/bin/u60proxy" ] || { echo "Existing u60proxy control plane is required" >&2; exit 1; }
+[ -x "$BASE/bin/proxy-mode" ] || { echo "Existing proxy-mode core is required" >&2; exit 1; }
+[ -x "$BASE/scripts/udp-tun.sh" ] || { echo "Existing UDP TUN helper is required" >&2; exit 1; }
 [ -x "$BASE/bin/sing-box" ] || { echo "sing-box missing" >&2; exit 1; }
 [ -f "$BASE/runtime/active.json" ] || { echo "active.json missing" >&2; exit 1; }
-mkdir -p "$BACKUP" "$CONTROL/bin"
+mkdir -p "$BACKUP" "$CONTROL/bin" "$CONTROL/runtime"
 cp -p "$CONTROL/bin/u60proxy" "$BACKUP/u60proxy"
 cp -p "$BASE/bin/proxy-mode" "$BACKUP/proxy-mode"
 cp -p "$BASE/scripts/traffic.sh" "$BACKUP/traffic.sh"
