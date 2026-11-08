@@ -1,0 +1,73 @@
+name: Build U60 Pro full install package
+on:
+  push:
+    branches: [feature/full-install-u60pro-v2.1.3]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test and validate
+        run: |
+          go test ./...
+          go vet ./...
+          for f in full-install/*.sh scripts/*.sh bin/proxy-mode start-u60proxy-v2.sh; do sh -n "$f"; done
+      - name: Build binaries and package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          P=dist/u60pro-full
+          mkdir -p "$P/bin" "$P/scripts" "$P/templates"
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$P/bin/u60proxy" ./cmd/u60proxy
+          cp bin/proxy-mode bin/u60doctor bin/u60backup bin/u60rollback "$P/bin/"
+          cp scripts/*.sh "$P/scripts/"
+          cp configs/mode11-full-proxy.example.json "$P/templates/"
+          cp start-u60proxy-v2.sh "$P/start-u60proxy-v2.sh"
+          cp full-install/install.sh full-install/start-u60proxy-full.sh "$P/"
+          # Pin vendor-tested sing-box version AND fixed sha256 before extraction.
+          IPK=sing-box_1.14.0_openwrt_aarch64_cortex-a53.ipk
+          if ! gh release download v1.14.0 -R SagerNet/sing-box -p "$IPK" -D /tmp --clobber; then
+            echo "GitHub release download failed; trying official API"
+            curl -fL --retry 5 --retry-all-errors -H "Accept: application/octet-stream" -H "Authorization: Bearer $GH_TOKEN" -o "/tmp/$IPK" "https://api.github.com/repos/SagerNet/sing-box/releases/assets/537410147"
+          fi
+          test "$(stat -c%s "/tmp/$IPK")" -gt 29000000
+          echo "c344b12633c5acbdd10749a4390dd87980524ed021da07bf784ec0924145be6c  /tmp/$IPK" | sha256sum -c -
+          mkdir -p /tmp/u60-ipk /tmp/u60-ipkroot
+          cd /tmp/u60-ipk
+          file "/tmp/$IPK"
+          # OpenWrt IPKs can be tar or ar archives, depending on packaging.
+          if ar t "/tmp/$IPK" >/dev/null 2>&1; then
+            ar x "/tmp/$IPK"
+          else
+            tar -xf "/tmp/$IPK"
+          fi
+          if test -f data.tar.gz; then
+            tar -xzf data.tar.gz -C /tmp/u60-ipkroot
+          elif test -f data.tar.xz; then
+            tar -xJf data.tar.xz -C /tmp/u60-ipkroot
+          elif test -f data.tar.zst; then
+            tar --zstd -xf data.tar.zst -C /tmp/u60-ipkroot
+          else
+            echo "Unsupported IPK data archive"; ls -la; exit 1
+          fi
+          test -f /tmp/u60-ipkroot/usr/bin/sing-box
+          cd "$GITHUB_WORKSPACE"
+          cp /tmp/u60-ipkroot/usr/bin/sing-box "$P/bin/sing-box"
+          chmod 755 "$P/bin/"*
+          cd dist
+          tar -czf u60pro-full.tar.gz u60pro-full
+          sha256sum u60pro-full.tar.gz > SHA256SUMS
+      - name: Publish versioned prerelease for clean installs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v2.1.3-u60pro-full
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "U60 Pro v2.1.3 full install (ARM64)" --notes "Clean-install package for compatible rooted ZTE U60 Pro. Does not contain VLESS credentials. Device verification required."
+          gh release upload "$TAG" dist/u60pro-full.tar.gz dist/SHA256SUMS --clobber

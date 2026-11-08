@@ -58,6 +58,12 @@ Version 2.1.2 adds an editor directly to the 8081 control panel for existing `/d
 
 Because mode JSON files can contain private server details, the 8081 panel should only be used on a trusted LAN until authentication is added.
 
+## Full clean-install preview (v2.1.3 U60 Pro Full)
+
+A separate **complete installation package** now exists for a rooted, compatible ZTE U60 Pro / MU5250 with a fresh `/data` environment. It bundles the ARM64 controller, sing-box, firewall/UDP TUN scripts, boot helpers and a non-secret Mode 11 template. This is **not** a firmware flashing tool and does not add root access.
+
+See [FULL-INSTALL.md](FULL-INSTALL.md) for prerequisites, download/installation, first VLESS setup and validation. Fresh-device installation is a preview and requires hardware verification; existing systems should continue to use the incremental updater below.
+
 ## Installation: existing device versus clean device
 
 **Important:** `v2.1.3-udp-capability` is an **incremental update**, not a full factory-fresh install kit. It requires the existing ZTE U60 Pro data-plane core at `/data/proxy-mode`, an installed sing-box binary, the existing `/data/u60proxy` control plane, and the supported firewall and network layout. It cannot install these prerequisites from scratch.
