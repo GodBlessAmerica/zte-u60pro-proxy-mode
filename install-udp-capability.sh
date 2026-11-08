@@ -17,9 +17,10 @@ cp -p "$BASE/bin/proxy-mode" "$BACKUP/proxy-mode"
 cp -p "$BASE/scripts/traffic.sh" "$BACKUP/traffic.sh"
 echo "$BACKUP" > "$CONTROL/runtime/udp-capability-backup"
 echo "Backup: $BACKUP"
-install -m 755 "$ROOT/bin/u60proxy" "$CONTROL/bin/u60proxy"
-install -m 755 "$ROOT/bin/proxy-mode" "$BASE/bin/proxy-mode"
-install -m 755 "$ROOT/scripts/traffic.sh" "$BASE/scripts/traffic.sh"
+cp "$ROOT/bin/u60proxy" "$CONTROL/bin/u60proxy"
+cp "$ROOT/bin/proxy-mode" "$BASE/bin/proxy-mode"
+cp "$ROOT/scripts/traffic.sh" "$BASE/scripts/traffic.sh"
+chmod 755 "$CONTROL/bin/u60proxy" "$BASE/bin/proxy-mode" "$BASE/scripts/traffic.sh"
 # Apply safely: traffic.sh creates an independent UDP fail-closed chain before
 # any change to the TUN; saved mode configs, credentials and device policy remain.
 "$CONTROL/bin/u60proxy" apply
