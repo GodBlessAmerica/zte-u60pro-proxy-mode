@@ -41,8 +41,22 @@ jobs:
           echo "c344b12633c5acbdd10749a4390dd87980524ed021da07bf784ec0924145be6c  /tmp/$IPK" | sha256sum -c -
           mkdir -p /tmp/u60-ipk /tmp/u60-ipkroot
           cd /tmp/u60-ipk
-          ar x "/tmp/$IPK"
-          test -f data.tar.gz && tar -xzf data.tar.gz -C /tmp/u60-ipkroot || { echo "Unsupported IPK data archive"; exit 1; }
+          file "/tmp/$IPK"
+          # OpenWrt IPKs can be tar or ar archives, depending on packaging.
+          if ar t "/tmp/$IPK" >/dev/null 2>&1; then
+            ar x "/tmp/$IPK"
+          else
+            tar -xf "/tmp/$IPK"
+          fi
+          if test -f data.tar.gz; then
+            tar -xzf data.tar.gz -C /tmp/u60-ipkroot
+          elif test -f data.tar.xz; then
+            tar -xJf data.tar.xz -C /tmp/u60-ipkroot
+          elif test -f data.tar.zst; then
+            tar --zstd -xf data.tar.zst -C /tmp/u60-ipkroot
+          else
+            echo "Unsupported IPK data archive"; ls -la; exit 1
+          fi
           test -f /tmp/u60-ipkroot/usr/bin/sing-box
           cd "$GITHUB_WORKSPACE"
           cp /tmp/u60-ipkroot/usr/bin/sing-box "$P/bin/sing-box"
