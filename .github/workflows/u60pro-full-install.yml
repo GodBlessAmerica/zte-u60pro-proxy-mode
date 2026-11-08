@@ -19,6 +19,8 @@ jobs:
           go vet ./...
           for f in full-install/*.sh scripts/*.sh bin/proxy-mode start-u60proxy-v2.sh; do sh -n "$f"; done
       - name: Build binaries and package
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           P=dist/u60pro-full
@@ -31,7 +33,11 @@ jobs:
           cp full-install/install.sh full-install/start-u60proxy-full.sh "$P/"
           # Pin vendor-tested sing-box version AND fixed sha256 before extraction.
           IPK=sing-box_1.14.0_openwrt_aarch64_cortex-a53.ipk
-          curl -fL --retry 3 -o "/tmp/$IPK" "https://github.com/SagerNet/sing-box/releases/download/v1.14.0/$IPK"
+          if ! gh release download v1.14.0 -R SagerNet/sing-box -p "$IPK" -D /tmp --clobber; then
+            echo "GitHub release download failed; trying official API"
+            curl -fL --retry 5 --retry-all-errors -H "Accept: application/octet-stream" -H "Authorization: Bearer $GH_TOKEN" -o "/tmp/$IPK" "https://api.github.com/repos/SagerNet/sing-box/releases/assets/537410147"
+          fi
+          test "$(stat -c%s "/tmp/$IPK")" -gt 29000000
           echo "c344b12633c5acbdd10749a4390dd87980524ed021da07bf784ec0924145be6c  /tmp/$IPK" | sha256sum -c -
           mkdir -p /tmp/u60-ipk /tmp/u60-ipkroot
           cd /tmp/u60-ipk
