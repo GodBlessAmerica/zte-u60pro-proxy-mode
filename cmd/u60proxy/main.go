@@ -168,6 +168,54 @@ func associatedMACs() map[string]bool {
 	}
 	return out
 }
+// Remember forgotten devices until positive rediscovery, not merely a stale DHCP lease.
+const forgottenFile = stateDir + "/forgotten-devices.json"
+
+func loadForgotten() (map[string]bool, error) {
+	m := map[string]bool{}
+	b, err := os.ReadFile(forgottenFile)
+	if os.IsNotExist(err) { return m, nil }
+	if err != nil { return nil, err }
+	if err = json.Unmarshal(b, &m); err != nil { return nil, err }
+	if m == nil { m = map[string]bool{} }
+	return m, nil
+}
+func saveForgotten(m map[string]bool) error {
+	b, err := json.Marshal(m)
+	if err != nil { return err }
+	return atomicWrite(forgottenFile, b, 0600)
+}
+func forgetDevice(mac string) error {
+	mac = normMAC(mac)
+	if ok, _ := regexp.MatchString("^([0-9a-f]{2}:){5}[0-9a-f]{2}$", mac); !ok { return fmt.Errorf("invalid MAC") }
+	mu.Lock()
+	defer mu.Unlock()
+	if associatedMACs()[mac] || neighbors()[mac] != "" { return fmt.Errorf("device still online or present in neighbor cache; disconnect and retry later") }
+	p, err := loadPolicies()
+	if err != nil { return err }
+	old, ok := p[mac]
+	if !ok { return fmt.Errorf("device not found") }
+	hidden, err := loadForgotten()
+	if err != nil { return err }
+	hidden[mac] = true
+	if err = saveForgotten(hidden); err != nil { return err }
+	delete(p, mac)
+	if err = savePolicies(p); err != nil {
+		delete(hidden, mac)
+		_ = saveForgotten(hidden)
+		return err
+	}
+	if err = applyLocked(p); err != nil {
+		p[mac] = old
+		delete(hidden, mac)
+		e1 := savePolicies(p)
+		e2 := saveForgotten(hidden)
+		e3 := applyLocked(p)
+		return fmt.Errorf("delete apply failed: %v; rollback policy=%v, record=%v, rules=%v", err, e1, e2, e3)
+	}
+	return nil
+}
+
 func scan() error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -178,7 +226,17 @@ func scan() error {
 	if e != nil {
 		return e
 	}
+	hidden, err := loadForgotten()
+	if err != nil { return err }
+	if len(hidden) > 0 {
+		assoc, ng := associatedMACs(), neighbors()
+		for mac := range hidden {
+			if assoc[mac] || ng[mac] != "" { delete(hidden, mac) }
+		}
+		if err = saveForgotten(hidden); err != nil { return err }
+	}
 	for mac, d := range leases() {
+		if hidden[mac] { continue }
 		q, ok := p[mac]
 		if !ok {
 			q = Policy{Name: d.Name}
@@ -678,6 +736,10 @@ func api(w http.ResponseWriter, r *http.Request) {
 		jsonResp(w, ds)
 	case "/api/modes":
 		jsonResp(w, modeList())
+	case "/api/device/delete":
+		if r.Method != "POST" { http.Error(w, "POST required", 405); return }
+		if e := forgetDevice(r.URL.Query().Get("mac")); e != nil { http.Error(w, e.Error(), 400); return }
+		jsonResp(w, map[string]any{"ok": true})
 	case "/api/device/set":
 		if r.Method != "POST" {
 			http.Error(w, "POST required", 405)
@@ -789,7 +851,8 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewp
 <div id="devices" class="grid"></div><div class="foot">U60 Proxy v2.1.4 preview · Wi-Fi Relay not included</div></div><div id="toast"></div><script>
 let busy=new Set(),timer,allModes=[],loadedMode=0,loadedText='',draft=null,saving=false;async function j(u,o){let r=await fetch(u,o);if(!r.ok)throw new Error((await r.text()).trim()||('HTTP '+r.status));return r.json()}function esc(s){return String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}function toast(t,ms=2200){let x=document.getElementById('toast');x.textContent=t;x.classList.add('show');clearTimeout(x._t);x._t=setTimeout(()=>x.classList.remove('show'),ms)}function chip(t,ok){return '<span class="chip"><span class="dot '+(ok?'ok':'')+'"></span>'+esc(t)+'</span>'}
 async function load(manual=false){let rb=document.getElementById('refresh');if(manual)rb.classList.add('spin');try{let [s,m,d]=await Promise.all([j('/api/status'),j('/api/modes'),j('/api/devices')]);allModes=m.filter(x=>!x.deprecated);summary.innerHTML=chip('WAN '+s.wan,s.wan==='SIM')+chip('Mode '+s.mode,true)+chip((s.online||0)+' online',(s.online||0)>0);modeHint.textContent='当前模式 '+s.mode+' · '+(allModes.find(x=>x.id===s.mode)?.name||'');modes.innerHTML=allModes.map(x=>'<button class="mode '+(x.id==s.mode?'active':'')+'" onclick="mode('+x.id+')">'+x.id+' · '+esc(x.name)+(x.udp?' · UDP':'')+'</button>').join('');let sel=document.getElementById('editorMode'),old=sel.value;sel.innerHTML=allModes.map(x=>'<option value="'+x.id+'">Mode '+x.id+' · '+esc(x.name)+'</option>').join('');if(old&&allModes.some(x=>String(x.id)===old))sel.value=old;else sel.value=String(s.mode);devices.innerHTML=d.map(card).join('')||'<div class="panel device">暂无已记录设备</div>';updated.textContent=new Date().toLocaleTimeString();}catch(e){toast(e.message,4000)}finally{rb.classList.remove('spin')}}
-function card(x){let key=x.mac,b=busy.has(key);return '<div class="panel device '+(x.online?'online':'')+'"><div class="dtop"><div><div class="name">'+esc(x.name||'Unknown')+'</div><div class="meta">'+esc(x.ip||'暂无 IP')+' · '+esc(x.mac)+'</div></div><span class="state '+(x.online?'on':'')+'">'+(x.online?'ONLINE':'OFFLINE')+'</span></div><div class="quick"><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'full\')">⚡ 全代理</button><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'direct\')">○ 全直连</button></div><div class="switches">'+sw(x,'proxy','TCP')+sw(x,'dns','DNS')+sw(x,'udp','UDP')+sw(x,'ipv6','IPv6 Guard')+'</div></div>'}
+async function forget(mac){if(!confirm('删除该离线设备及其代理策略？重新连接后将按新设备识别。'))return;await act(mac,()=>j('/api/device/delete?mac='+encodeURIComponent(mac),{method:'POST'}),'设备已删除')}
+function card(x){let key=x.mac,b=busy.has(key);return '<div class="panel device '+(x.online?'online':'')+'"><div class="dtop"><div><div class="name">'+esc(x.name||'Unknown')+'</div><div class="meta">'+esc(x.ip||'暂无 IP')+' · '+esc(x.mac)+'</div></div><span class="state '+(x.online?'on':'')+'">'+(x.online?'ONLINE':'OFFLINE')+'</span></div><div class="quick"><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'full\')">⚡ 全代理</button><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'direct\')">○ 全直连</button></div><div class="switches">'+sw(x,'proxy','TCP')+sw(x,'dns','DNS')+sw(x,'udp','UDP')+sw(x,'ipv6','IPv6 Guard')+'</div>'+(x.online?'':'<div class="quick"><button class="btn danger '+(b?'busy':'')+'" onclick="forget(\''+key+'\')">删除离线设备</button></div>')+'</div>'}
 function sw(x,f,n){let b=busy.has(x.mac);return '<button class="sw '+(x[f]?'on ':'')+(b?'busy':'')+'" onclick="setd(\''+x.mac+'\',\''+f+'\','+(!x[f])+')"><span class="label"><span>'+n+'</span><span class="pill">'+(x[f]?'ON':'OFF')+'</span></span></button>'}
 async function act(mac,fn,msg){busy.add(mac);await load();try{await fn();toast(msg)}catch(e){toast(e.message,5000)}finally{busy.delete(mac);await load()}}
 async function setd(mac,f,v){await act(mac,()=>j('/api/device/set?mac='+encodeURIComponent(mac)+'&field='+f+'&value='+(v?'on':'off'),{method:'POST'}),f.toUpperCase()+' '+(v?'已开启':'已关闭'))}
