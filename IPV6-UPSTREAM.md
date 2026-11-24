@@ -33,3 +33,7 @@ Run /data/u60proxy/bin/rollback-ipv6-upstream to restore the replaced scripts. S
 ## Runtime readiness follow-up
 
 The device operator confirmed a running IPv6 VLESS profile, UDP capability exit code 0, all UDP TUN readiness checks passing, an installed per-device IPv6 guard with actual reject counters, the UDP fail-closed chain, and both TUN and blackhole routes in policy table 167. This establishes runtime rule and routing readiness, not end-to-end UDP delivery or complete leak freedom. IPv4 switching, end-to-end UDP and leak testing, cellular reconnect and reboot recovery remain pending.
+
+## Web configuration management preview
+
+The ARM64 UI preview release v2.1.4-ui-b1386a0e96f1 was installed successfully according to the device operator, who reported normal operation. It supports persistent display names, new profiles, profile cloning and editing with sing-box validation. The numeric mode filenames remain unchanged. The UI-only upgrade preserves the running data plane. This operator report is not a comprehensive regression test. Unified installation, reboot/reconnect recovery, and end-to-end leak testing remain release gates. The web interface has no authentication and must remain on a trusted LAN.
