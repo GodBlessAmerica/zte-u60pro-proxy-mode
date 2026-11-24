@@ -19,6 +19,7 @@ if [ -f "$PID" ] && kill -0 "$(cat "$PID" 2>/dev/null)" 2>/dev/null; then
 fi
 
 "$BIN" check -c "$CONF"
+"$BASE/scripts/ipv6-upstream.sh" "$CONF"
 nohup "$BIN" run -c "$CONF" >>"$LOG" 2>&1 </dev/null &
 echo $! > "$PID"
 sleep 1
