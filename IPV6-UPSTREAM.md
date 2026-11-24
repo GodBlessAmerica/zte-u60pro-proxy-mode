@@ -29,3 +29,7 @@ Initial single-node IPv6 mode connectivity on U60 Pro has been reported successf
 ## Rollback
 
 Run /data/u60proxy/bin/rollback-ipv6-upstream to restore the replaced scripts. Select the previous working profile if necessary. No credentials or runtime diagnostics are included in this repository.
+
+## Runtime readiness follow-up
+
+The device operator confirmed a running IPv6 VLESS profile, UDP capability exit code 0, all UDP TUN readiness checks passing, an installed per-device IPv6 guard with actual reject counters, the UDP fail-closed chain, and both TUN and blackhole routes in policy table 167. This establishes runtime rule and routing readiness, not end-to-end UDP delivery or complete leak freedom. IPv4 switching, end-to-end UDP and leak testing, cellular reconnect and reboot recovery remain pending.
