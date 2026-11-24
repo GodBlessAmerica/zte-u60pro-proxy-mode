@@ -421,7 +421,36 @@ func setMode(n int) error {
 	time.Sleep(1200 * time.Millisecond)
 	return apply()
 }
+// Display names are independent of sing-box JSON and numeric mode IDs.
+const modeNamesFile = stateDir + "/mode-names.json"
+
+func loadModeNames() (map[string]string, error) {
+	names := map[string]string{}
+	b, err := os.ReadFile(modeNamesFile)
+	if os.IsNotExist(err) { return names, nil }
+	if err != nil { return nil, err }
+	if err = json.Unmarshal(b, &names); err != nil { return nil, err }
+	if names == nil { names = map[string]string{} }
+	return names, nil
+}
+
+func setModeName(n int, name string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if _, err := modeConfigPath(n); err != nil { return err }
+	name = strings.TrimSpace(name)
+	if len([]rune(name)) > 64 || strings.ContainsAny(name, "\r\n\t") { return fmt.Errorf("invalid name (maximum 64 characters, one line)") }
+	names, err := loadModeNames()
+	if err != nil { return err }
+	key := strconv.Itoa(n)
+	if name == "" { delete(names, key) } else { names[key] = name }
+	b, err := json.MarshalIndent(names, "", "  ")
+	if err != nil { return err }
+	return atomicWrite(modeNamesFile, append(b, '\n'), 0600)
+}
+
 func modeList() []Mode {
+	names, _ := loadModeNames()
 	meta := map[int]Mode{
 		4:  {4, "VLESS Reality", false, false},
 		5:  {5, "SSH Direct", false, false},
@@ -450,6 +479,7 @@ func modeList() []Mode {
 		if !ok {
 			md = Mode{ID: id, Name: fmt.Sprintf("Custom Mode %d", id)}
 		}
+		if name := names[strconv.Itoa(id)]; name != "" { md.Name = name }
 		out = append(out, md)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -649,6 +679,14 @@ func api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonResp(w, map[string]any{"ok": true})
+	case "/api/mode/name":
+		if r.Method != "POST" { http.Error(w, "POST required", 405); return }
+		n, _ := strconv.Atoi(r.URL.Query().Get("mode"))
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		var req struct { Name *string `json:"name"` }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == nil { http.Error(w, "invalid request", 400); return }
+		if err := setModeName(n, *req.Name); err != nil { http.Error(w, err.Error(), 400); return }
+		jsonResp(w, map[string]any{"ok": true})
 	case "/api/mode/config":
 		n, _ := strconv.Atoi(r.URL.Query().Get("mode"))
 		w.Header().Set("Cache-Control", "no-store")
@@ -715,20 +753,21 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewp
 
 <div class="panel section">
 <div class="section-head"><div><div class="section-title">Mode JSON 配置编辑器</div><div class="muted">直接编辑 /data/proxy-mode/configs/modeN.json</div></div></div>
-<div class="editorbar"><select id="editorMode"></select><button class="btn" onclick="openEditor()">载入 JSON</button><button class="btn" onclick="formatJSON()">格式化</button><button class="btn primary" onclick="saveJSON(false)">保存并校验</button><button class="btn danger" onclick="saveJSON(true)">保存并切换到该 Mode</button></div>
+<div class="editorbar"><select id="editorMode"></select><button class="btn" onclick="renameMode()">修改模式名称</button><button class="btn" onclick="openEditor()">载入 JSON</button><button class="btn" onclick="formatJSON()">格式化</button><button class="btn primary" onclick="saveJSON(false)">保存并校验</button><button class="btn danger" onclick="saveJSON(true)">保存并切换到该 Mode</button></div>
 <div id="editorWrap" class="editorwrap"><div class="editorstatus"><span id="editorLabel" class="muted"></span><span id="dirty" class="muted"></span></div><textarea id="jsonEditor" class="editor" spellcheck="false"></textarea><div class="warn">保存前会先执行 sing-box check；旧 JSON 自动备份。注意：8081 当前无登录认证，JSON 可能包含私有服务器信息，只应在可信 LAN 使用。</div></div>
 </div>
 
 <div id="devices" class="grid"></div><div class="foot">U60 Proxy v2.1.2 · Wi-Fi Relay not included</div></div><div id="toast"></div><script>
 let busy=new Set(),timer,allModes=[],loadedMode=0,loadedText='';async function j(u,o){let r=await fetch(u,o);if(!r.ok)throw new Error((await r.text()).trim()||('HTTP '+r.status));return r.json()}function esc(s){return String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}function toast(t,ms=2200){let x=document.getElementById('toast');x.textContent=t;x.classList.add('show');clearTimeout(x._t);x._t=setTimeout(()=>x.classList.remove('show'),ms)}function chip(t,ok){return '<span class="chip"><span class="dot '+(ok?'ok':'')+'"></span>'+esc(t)+'</span>'}
-async function load(manual=false){let rb=document.getElementById('refresh');if(manual)rb.classList.add('spin');try{let [s,m,d]=await Promise.all([j('/api/status'),j('/api/modes'),j('/api/devices')]);allModes=m.filter(x=>!x.deprecated);summary.innerHTML=chip('WAN '+s.wan,s.wan==='SIM')+chip('Mode '+s.mode,true)+chip((s.online||0)+' online',(s.online||0)>0);modeHint.textContent=s.mode===11?'Mode 11 · TCP REDIRECT + UDP TUN/XUDP':'当前模式 '+s.mode;modes.innerHTML=allModes.map(x=>'<button class="mode '+(x.id==s.mode?'active':'')+'" onclick="mode('+x.id+')">'+x.id+' · '+esc(x.name)+(x.udp?' · UDP':'')+'</button>').join('');let sel=document.getElementById('editorMode'),old=sel.value;sel.innerHTML=allModes.map(x=>'<option value="'+x.id+'">Mode '+x.id+' · '+esc(x.name)+'</option>').join('');if(old&&allModes.some(x=>String(x.id)===old))sel.value=old;else sel.value=String(s.mode);devices.innerHTML=d.map(card).join('')||'<div class="panel device">暂无已记录设备</div>';updated.textContent=new Date().toLocaleTimeString();}catch(e){toast(e.message,4000)}finally{rb.classList.remove('spin')}}
+async function load(manual=false){let rb=document.getElementById('refresh');if(manual)rb.classList.add('spin');try{let [s,m,d]=await Promise.all([j('/api/status'),j('/api/modes'),j('/api/devices')]);allModes=m.filter(x=>!x.deprecated);summary.innerHTML=chip('WAN '+s.wan,s.wan==='SIM')+chip('Mode '+s.mode,true)+chip((s.online||0)+' online',(s.online||0)>0);modeHint.textContent='当前模式 '+s.mode+' · '+(allModes.find(x=>x.id===s.mode)?.name||'');modes.innerHTML=allModes.map(x=>'<button class="mode '+(x.id==s.mode?'active':'')+'" onclick="mode('+x.id+')">'+x.id+' · '+esc(x.name)+(x.udp?' · UDP':'')+'</button>').join('');let sel=document.getElementById('editorMode'),old=sel.value;sel.innerHTML=allModes.map(x=>'<option value="'+x.id+'">Mode '+x.id+' · '+esc(x.name)+'</option>').join('');if(old&&allModes.some(x=>String(x.id)===old))sel.value=old;else sel.value=String(s.mode);devices.innerHTML=d.map(card).join('')||'<div class="panel device">暂无已记录设备</div>';updated.textContent=new Date().toLocaleTimeString();}catch(e){toast(e.message,4000)}finally{rb.classList.remove('spin')}}
 function card(x){let key=x.mac,b=busy.has(key);return '<div class="panel device '+(x.online?'online':'')+'"><div class="dtop"><div><div class="name">'+esc(x.name||'Unknown')+'</div><div class="meta">'+esc(x.ip||'暂无 IP')+' · '+esc(x.mac)+'</div></div><span class="state '+(x.online?'on':'')+'">'+(x.online?'ONLINE':'OFFLINE')+'</span></div><div class="quick"><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'full\')">⚡ 全代理</button><button class="'+(b?'busy':'')+'" onclick="preset(\''+key+'\',\'direct\')">○ 全直连</button></div><div class="switches">'+sw(x,'proxy','TCP')+sw(x,'dns','DNS')+sw(x,'udp','UDP')+sw(x,'ipv6','IPv6 Guard')+'</div></div>'}
 function sw(x,f,n){let b=busy.has(x.mac);return '<button class="sw '+(x[f]?'on ':'')+(b?'busy':'')+'" onclick="setd(\''+x.mac+'\',\''+f+'\','+(!x[f])+')"><span class="label"><span>'+n+'</span><span class="pill">'+(x[f]?'ON':'OFF')+'</span></span></button>'}
 async function act(mac,fn,msg){busy.add(mac);await load();try{await fn();toast(msg)}catch(e){toast(e.message,5000)}finally{busy.delete(mac);await load()}}
 async function setd(mac,f,v){await act(mac,()=>j('/api/device/set?mac='+encodeURIComponent(mac)+'&field='+f+'&value='+(v?'on':'off'),{method:'POST'}),f.toUpperCase()+' '+(v?'已开启':'已关闭'))}
 async function preset(mac,p){await act(mac,()=>j('/api/device/preset?mac='+encodeURIComponent(mac)+'&preset='+p,{method:'POST'}),p==='full'?'已切换全代理':'已切换全直连')}
 async function mode(n){if(!confirm('切换到 Mode '+n+'？'))return;try{toast('正在切换 Mode '+n+'…');await j('/api/mode/set?mode='+n,{method:'POST'});toast('Mode '+n+' 已启用');await load()}catch(e){toast(e.message,6000)}}
-async function openEditor(){let n=Number(editorMode.value);if(!n)return;if(loadedMode&&jsonEditor.value!==loadedText&&!confirm('当前 JSON 有未保存修改，确定载入其它 Mode？'))return;try{let x=await j('/api/mode/config?mode='+n);loadedMode=n;loadedText=x.content;jsonEditor.value=x.content;editorWrap.classList.add('open');editorLabel.textContent='正在编辑 Mode '+n;dirty.textContent='';jsonEditor.focus()}catch(e){toast(e.message,5000)}}
+async function renameMode(){let n=Number(editorMode.value),m=allModes.find(x=>x.id===n);if(!m)return;let name=prompt('自定义模式名称（留空恢复默认）',m.name);if(name===null)return;try{await j('/api/mode/name?mode='+n,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});await load();toast('名称已保存，无需重启代理')}catch(e){toast(e.message,5000)}}
+async function openEditor(){let n=Number(editorMode.value);if(!n)return;if(loadedMode&&jsonEditor.value!==loadedText&&!confirm('当前 JSON 有未保存修改，确定载入其它 Mode？'))return;try{let x=await j('/api/mode/config?mode='+n);loadedMode=n;loadedText=x.content;jsonEditor.value=x.content;editorWrap.classList.add('open');editorLabel.textContent='正在编辑 Mode '+n+' · '+(allModes.find(x=>x.id===n)?.name||'');dirty.textContent='';jsonEditor.focus()}catch(e){toast(e.message,5000)}}
 function formatJSON(){try{let o=JSON.parse(jsonEditor.value);jsonEditor.value=JSON.stringify(o,null,2)+'\n';dirty.textContent='未保存';toast('JSON 已格式化')}catch(e){toast('JSON 语法错误：'+e.message,5000)}}
 async function saveJSON(activate){let n=Number(editorMode.value);if(loadedMode!==n){toast('请先载入这个 Mode 的 JSON');return}let content=jsonEditor.value;try{JSON.parse(content)}catch(e){toast('JSON 语法错误：'+e.message,5000);return}if(activate&&!confirm('保存并切换到 Mode '+n+'？'))return;try{toast(activate?'正在校验、保存并切换…':'正在校验并保存…');let x=await j('/api/mode/config?mode='+n,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,activate})});loadedText=content;dirty.textContent='已保存';toast((activate?'已保存并切换 Mode '+n:'Mode '+n+' 已保存')+'\\n备份已创建',3500);await load()}catch(e){toast(e.message,7000)}}
 jsonEditor.addEventListener('input',()=>{if(loadedMode)dirty.textContent=jsonEditor.value===loadedText?'':'未保存'});window.addEventListener('beforeunload',e=>{if(loadedMode&&jsonEditor.value!==loadedText){e.preventDefault();e.returnValue=''}});load();timer=setInterval(()=>{if(busy.size===0)load()},3000)
