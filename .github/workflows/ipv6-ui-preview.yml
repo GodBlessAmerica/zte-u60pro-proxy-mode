@@ -1,0 +1,35 @@
+name: Build IPv6 and UI preview
+on:
+  push:
+    branches: [feature/ipv6-upstream-v2.1.3]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Validate
+        run: |
+          go test ./...
+          go vet ./...
+          for f in scripts/*.sh bin/proxy-mode install-ipv6-upstream.sh rollback-ipv6-upstream.sh install-ui-preview.sh rollback-ui-preview.sh; do sh -n "$f"; done
+      - name: Build
+        run: |
+          mkdir -p dist/u60pro-ui-preview/bin
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/u60pro-ui-preview/bin/u60proxy ./cmd/u60proxy
+          cp install-ui-preview.sh rollback-ui-preview.sh IPV6-UPSTREAM.md dist/u60pro-ui-preview/
+          cd dist
+          tar -czf u60pro-ui-preview.tar.gz u60pro-ui-preview
+          sha256sum u60pro-ui-preview.tar.gz > SHA256SUMS
+      - name: Publish immutable commit-specific preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v2.1.4-ui-${GITHUB_SHA:0:12}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "U60 Pro UI preview" --notes "Existing IPv6 preview installations only; device verification required."
+          gh release upload "$TAG" dist/u60pro-ui-preview.tar.gz dist/SHA256SUMS --clobber
