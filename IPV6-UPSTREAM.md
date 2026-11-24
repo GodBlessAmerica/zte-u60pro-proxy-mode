@@ -24,7 +24,7 @@ Use configs/mode13-ipv6-upstream.example.json as a template for an unused mode n
 
 ## Current validation status
 
-Initial single-node IPv6 mode connectivity on U60 Pro has been reported successful by the device operator. UDP, leak prevention, switching regression and reboot recovery remain to be independently verified. No fresh-install claim is made. The readiness helper checks the final outbound only; chained IPv6 first hops are not covered. IPv6 upstream does not imply dual-stack LAN interception.
+Initial single-node IPv6 mode connectivity on U60 Pro has been reported successful by the device operator. On-device checks also confirmed running sing-box, mode-independent UDP capability (exit 0), active UDP TUN interface, interception chain, policy rule, TUN default route and blackhole fallback. Per-device IPv6 FORWARD guard and IPv4 UDP fail-closed chains were attached; IPv6 reject counters showed actual packet rejection. These checks establish installed dataplane and guard behavior, not end-to-end UDP delivery or comprehensive leak freedom. Actual UDP application testing, external leak checks, IPv4 switching regression, cellular reconnect and reboot recovery remain pending. No fresh-install claim is made. The readiness helper checks the final outbound only; chained IPv6 first hops are not covered. IPv6 upstream does not imply dual-stack LAN interception.
 
 ## Rollback
 
