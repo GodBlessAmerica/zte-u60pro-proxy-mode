@@ -598,6 +598,9 @@ func writeModeConfig(n int, content string, activate, create bool, name string) 
 		return "", fmt.Errorf("invalid JSON")
 	}
 
+	content, err = normalizeBootstrap(content)
+	if err != nil { return "", fmt.Errorf("DNS bootstrap normalization failed") }
+
 	cfgDir := filepath.Dir(p)
 	tmp, err := os.CreateTemp(cfgDir, ".mode-edit-*.json")
 	if err != nil {
