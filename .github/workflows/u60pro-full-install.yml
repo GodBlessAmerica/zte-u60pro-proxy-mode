@@ -1,7 +1,7 @@
-name: Build U60 Pro full install package
+name: Build U60 Pro v2.1.4 upgrade and full packages
 on:
   push:
-    branches: [feature/full-install-u60pro-v2.1.3]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
@@ -17,7 +17,7 @@ jobs:
         run: |
           go test ./...
           go vet ./...
-          for f in full-install/*.sh scripts/*.sh bin/proxy-mode start-u60proxy-v2.sh; do sh -n "$f"; done
+          for f in full-install/*.sh scripts/*.sh bin/proxy-mode start-u60proxy-v2.sh update.sh install-v2.1.4.sh rollback-v2.1.4.sh; do sh -n "$f"; done
       - name: Build binaries and package
         env:
           GH_TOKEN: ${{ github.token }}
@@ -28,7 +28,14 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$P/bin/u60proxy" ./cmd/u60proxy
           cp bin/proxy-mode bin/u60doctor bin/u60backup bin/u60rollback "$P/bin/"
           cp scripts/*.sh "$P/scripts/"
-          cp configs/mode11-full-proxy.example.json "$P/templates/"
+          cp configs/mode11-full-proxy.example.json configs/mode13-ipv6-upstream.example.json "$P/templates/"
+          cp VERSION "$P/"
+          U=dist/u60pro-upgrade
+          mkdir -p "$U/bin" "$U/scripts"
+          cp "$P/bin/u60proxy" bin/proxy-mode "$U/bin/"
+          cp scripts/*.sh "$U/scripts/"
+          cp VERSION install-v2.1.4.sh rollback-v2.1.4.sh "$U/"
+          (cd dist && tar -czf u60pro-upgrade.tar.gz u60pro-upgrade && sha256sum u60pro-upgrade.tar.gz > SHA256SUMS-upgrade)
           cp start-u60proxy-v2.sh "$P/start-u60proxy-v2.sh"
           cp full-install/install.sh full-install/start-u60proxy-full.sh "$P/"
           # Pin vendor-tested sing-box version AND fixed sha256 before extraction.
@@ -63,11 +70,11 @@ jobs:
           chmod 755 "$P/bin/"*
           cd dist
           tar -czf u60pro-full.tar.gz u60pro-full
-          sha256sum u60pro-full.tar.gz > SHA256SUMS
-      - name: Publish versioned prerelease for clean installs
+          sha256sum u60pro-full.tar.gz > SHA256SUMS-full
+      - name: Publish both versioned candidate packages
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=v2.1.3-u60pro-full
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "U60 Pro v2.1.3 full install (ARM64)" --notes "Clean-install package for compatible rooted ZTE U60 Pro. Does not contain VLESS credentials. Device verification required."
-          gh release upload "$TAG" dist/u60pro-full.tar.gz dist/SHA256SUMS --clobber
+          TAG=v2.1.4
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "U60 Pro v2.1.4 (ARM64 release candidate)" --notes "Unified upgrade and full installation for compatible rooted U60 Pro. No private credentials. Unified installer and reboot/reconnect hardware verification pending."
+          gh release upload "$TAG" dist/u60pro-full.tar.gz dist/SHA256SUMS-full dist/u60pro-upgrade.tar.gz dist/SHA256SUMS-upgrade --clobber
