@@ -9,8 +9,8 @@ import (
 var bootstrapHost = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$`)
 var bootstrapNumeric = regexp.MustCompile(`^[0-9.]+$`)
 
-// Only simple single-hop IPv4 hostname profiles with one proxied DoH.
-// Preserve custom resolvers, literal addresses, and chained profiles.
+// Only simple single-hop or two-hop IPv4 hostname profiles with one proxied DoH.
+// Preserve custom resolvers, literal addresses, and unsupported chains.
 func normalizeBootstrap(content string) (string, error) {
  var c map[string]any
  d := json.NewDecoder(bytes.NewBufferString(content))
@@ -24,16 +24,24 @@ func normalizeBootstrap(content string) (string, error) {
  if v,ok:=o["detour"]; ok && v!=nil && v!="" { return content,nil }
  count:=0
  for _, item := range obs { if x,ok:=item.(map[string]any); ok && x["type"]=="vless" { count++ } }
- if count!=1 { return content,nil }
+ if count!=1 && count!=2 { return content,nil }
  route,_:=c["route"].(map[string]any)
  dns,_:=c["dns"].(map[string]any)
  tag,ok:=o["tag"].(string)
- if !ok || tag=="" || route["final"]!=tag || route["default_domain_resolver"]!=nil { return content,nil }
+ if !ok || tag=="" || route["default_domain_resolver"]!=nil { return content,nil }
+ final,ok:=route["final"].(string)
+ if !ok || final=="" { return content,nil }
+ if count==1 && final!=tag { return content,nil }
+ if count==2 {
+  matches:=0
+  for _,item:=range obs { if x,ok:=item.(map[string]any); ok && x["type"]=="vless" && x["tag"]==final && x["detour"]==tag && final!=tag { matches++ } }
+  if matches!=1 { return content,nil }
+ }
  servers,_:=dns["servers"].([]any)
  if len(servers)!=1 { return content,nil }
  remote,_:=servers[0].(map[string]any)
  remoteTag,ok:=remote["tag"].(string)
- if !ok || remoteTag=="" || remoteTag=="dns-bootstrap" || remote["type"]!="https" || remote["detour"]!=tag { return content,nil }
+ if !ok || remoteTag=="" || remoteTag=="dns-bootstrap" || remote["type"]!="https" || remote["detour"]!=final { return content,nil }
  if v:=dns["final"]; v!=nil && v!=remoteTag { return content,nil }
  if v:=dns["strategy"]; v!=nil && v!="ipv4_only" { return content,nil }
  if v:=dns["rules"]; v!=nil { a,ok:=v.([]any); if !ok || len(a)!=0 { return content,nil } }
