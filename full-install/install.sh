@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 077
 # U60 Pro / MU5250 fresh installation only; BusyBox compatible.
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CORE=/data/proxy-mode
@@ -12,7 +13,7 @@ info(){ echo "[INFO] $*"; }
 [ "$(uname -m)" = aarch64 ] || die "ZTE U60 Pro ARM64/aarch64 only"
 [ -w /data ] || die "/data must be writable"
 [ -c /dev/net/tun ] || die "/dev/net/tun missing"
-for app in ip iptables ip6tables awk sed grep cp mv chmod tar sha256sum; do
+for app in ip iptables ip6tables awk sed grep cp mv chmod tar sha256sum jsonfilter; do
   command -v "$app" >/dev/null 2>&1 || die "missing command: $app"
 done
 ip link show br-lan >/dev/null 2>&1 || die "br-lan missing"
@@ -20,11 +21,11 @@ ip link show rmnet_data0 >/dev/null 2>&1 || die "rmnet_data0 missing"
 ip addr show br-lan | grep -q '10\.66\.0\.1/' || die "LAN is not 10.66.0.1; unsupported vendor layout"
 iptables -V | grep -qi legacy || die "requires tested iptables-legacy backend"
 # Do not overwrite other projects or existing installations.
-for p in "$CORE" "$UI" "$HOOK"; do
+for p in "$CORE" "$UI" "$HOOK" /data/start-u60proxy-v2.sh; do
  [ ! -e "$p" ] || die "Existing installation/path found: $p ; use upgrade, not fresh installer"
 done
 [ -f /etc/rc.local ] || die "/etc/rc.local missing"
-for f in "$ROOT/bin/u60proxy" "$ROOT/bin/sing-box" "$ROOT/bin/proxy-mode" "$ROOT/scripts/udp-tun.sh" "$ROOT/scripts/traffic.sh" "$ROOT/start-u60proxy-v2.sh" "$ROOT/start-u60proxy-full.sh" "$ROOT/templates/mode11-full-proxy.example.json"; do
+for f in "$ROOT/bin/u60proxy" "$ROOT/bin/sing-box" "$ROOT/bin/proxy-mode" "$ROOT/scripts/udp-tun.sh" "$ROOT/scripts/traffic.sh" "$ROOT/start-u60proxy-v2.sh" "$ROOT/start-u60proxy-full.sh" "$ROOT/templates/mode11-full-proxy.example.json" "$ROOT/templates/mode13-ipv6-upstream.example.json" "$ROOT/scripts/ipv6-upstream.sh" "$ROOT/VERSION"; do
  [ -s "$f" ] || die "package file missing: $f"
 done
 "$ROOT/bin/sing-box" version >/dev/null || die "packaged sing-box binary incompatible"
@@ -37,6 +38,8 @@ cp "$ROOT/bin/u60proxy" "$UI/bin/u60proxy"
 for f in "$ROOT"/scripts/*.sh; do cp "$f" "$CORE/scripts/"; done
 for f in u60doctor u60backup u60rollback; do cp "$ROOT/bin/$f" "$UI/bin/$f"; done
 cp "$ROOT/templates/mode11-full-proxy.example.json" "$CORE/configs/mode11.example.json"
+cp "$ROOT/templates/mode13-ipv6-upstream.example.json" "$CORE/configs/mode13.example.json"
+cp "$ROOT/VERSION" "$UI/VERSION"
 cp "$ROOT/start-u60proxy-v2.sh" /data/start-u60proxy-v2.sh
 cp "$ROOT/start-u60proxy-full.sh" "$HOOK"
 chmod 755 "$CORE/bin/"* "$CORE/scripts/"*.sh "$UI/bin/"* /data/start-u60proxy-v2.sh "$HOOK"
@@ -60,7 +63,7 @@ cp /etc/rc.local.u60full.new /etc/rc.local
 rm -f /etc/rc.local.u60full.new
 # Starting web only. No sing-box proxy or firewall mutation without configured credentials.
 sh /data/start-u60proxy-v2.sh
-info "U60 Pro full baseline installed"
+info "U60 Pro v2.1.4 full candidate installed"
 info "Web control (trusted LAN ONLY): http://10.66.0.1:8081"
 info "Config template: $CORE/configs/mode11.example.json"
 info "Copy template to mode11.json, fill credentials privately, run sing-box check and enable only after validation"
