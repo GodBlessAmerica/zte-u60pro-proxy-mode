@@ -1,157 +1,65 @@
-# ZTE U60 Pro Proxy Mode
+# ZTE U60 Pro Proxy Mode — v2.1.4
 
-`u60proxy` is a portable sing-box proxy manager for the ZTE U60 Pro / MU5250 family.
+Portable sing-box proxy manager for rooted ZTE U60 Pro / MU5250 (ARM64). Version 2.1.4 is a **release candidate**: IPv6 single-node upstream and the expanded UI have been exercised by the device operator; unified upgrade, clean installation and full reboot/reconnect regression still require device verification.
 
-Current maintained update release: **v2.1.3-udp-capability** (for existing compatible installations; **not** a clean-install image). Wi-Fi relay is not included.
+## 中文安装说明
 
-This repository is intentionally separate from `GodBlessAmerica/openwrt-proxy-mode-suite`; U60 Pro specific work lives here.
+### 已有设备升级（保留配置）
 
-## Validated device
-
-- ZTE U60 Pro / MU5250
-- Firmware family: B31
-- OpenWrt 23.05.4 vendor build
-- aarch64 / Snapdragon SDX75
-- writable persistent storage: `/data`
-- LAN: `10.66.0.1/24` on `br-lan`
-- cellular WAN: `rmnet_data0`
-
-## Stable architecture
-
-Modes 11 and 12 have been device-tested for UDP TUN → VLESS XUDP forwarding. This is the full-proxy path:
-
-```text
-TCP -> REDIRECT :7893 -> sing-box -> proxy outbound
-UDP -> mark 0x67 -> table 167 -> u60udp0 -> sing-box TUN -> proxy outbound
-DNS -> REDIRECT :5353/:5354 -> sing-box
-IPv6 -> per-device leak guard
-```
-
-Table 167 contains a blackhole fallback so selected UDP traffic fails closed instead of escaping through cellular WAN.
-
-## Per-device policy
-
-Policies are keyed by MAC address and survive client IP changes. Each device has four independent switches:
-
-- TCP proxy
-- DNS proxy
-- UDP proxy
-- IPv6 guard
-
-New devices default to direct/off for all four fields.
-
-The web UI determines online state from Wi-Fi association plus `br-lan` neighbor state; DHCP leases are used for identity/IP metadata and are not treated as the sole online signal.
-
-## Web UI
-
-The control plane listens only on:
-
-```text
-http://10.66.0.1:8081/
-```
-
-The stock ZTE web UI on ports 80/443 is not modified.
-
-## Mode JSON editor
-
-Version 2.1.2 adds an editor directly to the 8081 control panel for existing `/data/proxy-mode/configs/modeN.json` files. Before replacing a config, u60proxy validates JSON syntax, runs `sing-box check`, and creates a timestamped backup. The editor can also save and activate a mode in one step.
-
-Because mode JSON files can contain private server details, the 8081 panel should only be used on a trusted LAN until authentication is added.
-
-## Full clean-install preview (v2.1.3 U60 Pro Full)
-
-A separate **complete installation package** now exists for a rooted, compatible ZTE U60 Pro / MU5250 with a fresh `/data` environment. It bundles the ARM64 controller, sing-box, firewall/UDP TUN scripts, boot helpers and a non-secret Mode 11 template. This is **not** a firmware flashing tool and does not add root access.
-
-See [FULL-INSTALL.md](FULL-INSTALL.md) for prerequisites, download/installation, first VLESS setup and validation. Fresh-device installation is a preview and requires hardware verification; existing systems should continue to use the incremental updater below.
-
-## Installation: existing device versus clean device
-
-**Important:** `v2.1.3-udp-capability` is an **incremental update**, not a full factory-fresh install kit. It requires the existing ZTE U60 Pro data-plane core at `/data/proxy-mode`, an installed sing-box binary, the existing `/data/u60proxy` control plane, and the supported firewall and network layout. It cannot install these prerequisites from scratch.
-
-### A. Update an existing compatible U60 Pro (recommended)
-
-Use a **LAN SSH session as root**. Ensure you can reconnect locally if the proxy restarts.
+适用于已有兼容的 /data/proxy-mode 和 /data/u60proxy 安装。通过可信 LAN SSH，以 root 身份执行。先查看脚本内容，再执行：
 
 ```sh
-wget -O /tmp/update-udp-capability.sh \
-https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/main/update-udp-capability.sh
-sh /tmp/update-udp-capability.sh
+curl -fL -o /tmp/u60-update.sh https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/main/update.sh
+sh /tmp/u60-update.sh
 ```
 
-The script downloads the published ARM64 `v2.1.3-udp-capability` archive, verifies its SHA-256, checks CPU architecture and existing paths, backs up the replaced components and applies the update. **Existing private `modeN.json` configurations, credentials, sing-box and device policies are preserved.** It is designed for compatible ZTE U60 Pro / MU5250 firmware, **not arbitrary OpenWrt devices or phones**.
+统一升级包包含 ARM64 控制程序、代理核心脚本、IPv6 检测及回滚。保留 sing-box、私人 JSON、设备策略、模式名称和当前运行代理；新的转发脚本在下次切换模式或应用策略时生效。
 
-Release and assets: [v2.1.3-udp-capability](https://github.com/GodBlessAmerica/zte-u60pro-proxy-mode/releases/tag/v2.1.3-udp-capability).
+回滚：`/data/u60proxy/bin/rollback-v2.1.4`。
 
-After installation, check:
+### 新设备完整安装
+
+仅限已 root、兼容固件、可写 /data、没有旧项目安装的 U60 Pro / MU5250。不是刷机或获取 root 的工具。
 
 ```sh
-/data/u60proxy/bin/u60proxy udp-capable
-echo "capability_exit_code=$?"
-/data/proxy-mode/scripts/udp-tun.sh status
-iptables -nvL U60PM_UDP_FAIL
-ip -4 rule show
-ip -4 route show table 167
+curl -fL -o /tmp/u60-full.sh https://raw.githubusercontent.com/GodBlessAmerica/zte-u60pro-proxy-mode/main/full-install/bootstrap-full.sh
+sh /tmp/u60-full.sh
 ```
 
-For a compatible active VLESS profile, `capability_exit_code=0`, `full_proxy_udp=on` and all four UDP TUN readiness fields should be `yes`. A compatible profile needs the `udp-tun-in` inbound bound to `u60udp0`, plus a VLESS `xudp` final outbound. The mode number (11, 12, 13…) does **not** decide whether UDP TUN is enabled. Test actual DNS, TCP/UDP and WAN egress before trusting any profile for privacy-sensitive use.
+安装后进入 http://10.66.0.1:8081，使用新建 JSON 功能录入私人节点。完整包提供 IPv4 和 IPv6 模板，不自动启用任何示例节点。详见 [FULL-INSTALL.md](FULL-INSTALL.md)。
 
-For rollback, find the extracted package under `/tmp/u60proxy-udp-update-*` (path printed by the updater), then execute its `rollback-udp-capability.sh`. Original component backups are stored under `/data/u60proxy/backups/udp-capability-YYYYMMDD-HHMMSS`.
+Both download entry points require the [v2.1.4 release assets](https://github.com/GodBlessAmerica/zte-u60pro-proxy-mode/releases/tag/v2.1.4) to be published. Each verifies its own SHA-256 manifest. Review scripts before running as root.
 
-### B. Brand-new U60 Pro (clean install)
+## Hardware requirements
 
-The **target maintained version is still v2.1.3**, but there is **no verified one-command clean installer** in the current Releases:
+- ZTE U60 Pro / MU5250, B31 vendor firmware family, OpenWrt 23.05.4, ARM64.
+- Persistent writable /data; br-lan at 10.66.0.1; cellular rmnet_data0.
+- iptables-legacy, ip6tables, iproute2, jsonfilter, /dev/net/tun.
+- Direct LAN SSH access and sufficient storage. No firmware flashing, rooting, or Wi-Fi relay.
 
-1. Prepare a supported U60 Pro / MU5250 with root access, compatible vendor firmware, the `/data` persistent filesystem, and LAN SSH access.
-2. Install and validate the base `/data/proxy-mode` data plane, sing-box, `proxy-mode` launcher, required startup scripts, and vendor-compatible firewall rules. Do not modify firmware partitions. The old `bootstrap.sh` is for the legacy core, **not** a verified all-in-one v2.1.3 factory installation.
-3. Install the 2.1.x `u60proxy` control plane with its `install.sh` **only after** the core is present. Its installer requires a prebuilt ARM64 `bin/u60proxy` and supporting files. The repository does **not** currently publish a ready-to-use v2.1.2 base Release asset; do not assume this step can be completed by downloading the v2.1.3 patch alone.
-4. With the base controller and sing-box working, follow **A** to update to `v2.1.3-udp-capability`. Add private VLESS credentials only on-device, not in GitHub.
-5. Verify both TCP and UDP, IPv6 blocking, DNS, and public WAN IP before daily use.
+## Features
 
-**Do not run the v2.1.3 updater on a factory-fresh device expecting it to install everything.** It intentionally refuses if the existing control plane and sing-box are missing. A separate end-to-end factory installer and full-device validation are still needed.
+- IPv4 TCP REDIRECT and UDP TUN / XUDP, independent of mode number.
+- Literal IPv6 single-node VLESS upstream with route preflight and ipv4_only DNS strategy.
+- MAC-based TCP, DNS, UDP and IPv6 guard switches; direct clients retain their configured policy.
+- Persistent mode names, create, clone, edit, format and validate JSON; automatic backups for edits.
+- Delete offline device records; suppress stale DHCP rediscovery until positive rediscovery.
+- Isolated U60PM_* chains; UDP policy table 167 with blackhole fallback.
 
-## CLI
+## Management
 
-```sh
-/data/u60proxy/bin/u60proxy status
-/data/u60proxy/bin/u60proxy scan
-/data/u60proxy/bin/u60proxy apply
-/data/u60proxy/bin/u60proxy doctor
-/data/u60proxy/bin/u60proxy backup
-/data/u60proxy/bin/u60proxy rollback latest
-```
-
-Mode management:
+Web UI: http://10.66.0.1:8081 — **trusted LAN only; no authentication**. Stock vendor ports 80/443 are not modified.
 
 ```sh
+/data/proxy-mode/bin/proxy-mode status
 /data/u60proxy/bin/u60proxy mode list
-/data/u60proxy/bin/u60proxy mode set 11
+/data/u60proxy/bin/u60proxy udp-capable
+ip -4 route show table 167
+ip6tables -nvL U60PM_GUARD6
 ```
 
-## Boot behavior
+The IPv6 upstream feature is not dual-stack LAN interception. Keep IPv6 Guard enabled for full-proxy devices. Runtime guard counters and TUN readiness do not prove zero leakage. Chained IPv6 first-hop detection is not implemented. The new installer does not replace existing boot hooks.
 
-On the tested vendor firmware, a custom procd service was not reliable at cold boot. The stable startup path is:
+## Documentation and safety
 
-```text
-/etc/rc.local
-  -> /data/start-proxy-mode.sh
-  -> /data/start-u60proxy-v2.sh
-```
-
-`start-u60proxy-v2.sh` waits for `br-lan` / `10.66.0.1` and starts only the web/control plane. It does not restart Mode 11 a second time.
-
-## Safety
-
-- Never flush vendor firewall tables.
-- Project rules use isolated `U60PM_*` chains.
-- Do not modify firmware partitions or boot slots.
-- Keep the stock ZTE web service on 80/443 untouched.
-- Production mode configs and credentials must stay private.
-- Wi-Fi relay is intentionally excluded from 2.1.2 and will be developed separately.
-
-## Secrets
-
-Never commit production server addresses, UUIDs, Reality keys, passwords, SSH keys, Wi-Fi credentials, web tokens, or device backups. Repository configs must contain examples only.
-
-## Additional UDP capability details
-
-See [UDP-CAPABILITY.md](UDP-CAPABILITY.md) for how mode-independent UDP selection works, requirements, verification, limitations and rollback.
+See [IPV6-UPSTREAM.md](IPV6-UPSTREAM.md), [UDP-CAPABILITY.md](UDP-CAPABILITY.md), and [FULL-INSTALL.md](FULL-INSTALL.md). Older incremental releases remain available for recovery. Do not upload real node addresses, UUIDs, keys, MACs, logs or private backups. This project is separate from the RAX3000M repository.
