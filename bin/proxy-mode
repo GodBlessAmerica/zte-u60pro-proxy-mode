@@ -83,12 +83,21 @@ list_modes() {
     [ "$found" -eq 1 ] || echo "no modes"
 }
 
+validate_mode() {
+    case "$1" in ''|*[!0-9]*) echo "mode must be numeric" >&2; return 2;; esac
+    candidate="$BASE/configs/mode$1.json"
+    [ -f "$candidate" ] || { echo "mode not found" >&2; return 1; }
+    "$BASE/bin/sing-box" check -c "$candidate" || return 1
+    "$ROOT_DIR/scripts/ipv6-upstream.sh" "$candidate"
+}
+
 use_mode() {
     n="$1"
     case "$n" in ''|*[!0-9]*) echo "mode must be numeric" >&2; exit 2;; esac
     src="$BASE/configs/mode${n}.json"
     [ -f "$src" ] || { echo "mode not found: $src" >&2; exit 1; }
-    "$BASE/bin/sing-box" check -c "$src"
+    validate_mode "$n"
+    umask 077
     cp "$src" "$BASE/runtime/active.json.tmp"
     mv "$BASE/runtime/active.json.tmp" "$BASE/runtime/active.json"
     echo "$n" > "$BASE/runtime/current_mode"
@@ -127,6 +136,7 @@ case "$cmd" in
         ;;
     restart)
         [ $# -le 2 ] || { usage; exit 2; }
+        if [ $# -eq 2 ]; then validate_mode "$2"; else "$ROOT_DIR/scripts/ipv6-upstream.sh" "$BASE/runtime/active.json"; fi
         "$STOP"
         if [ $# -eq 2 ]; then use_mode "$2"; fi
         "$START"
