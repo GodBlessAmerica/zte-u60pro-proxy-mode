@@ -56,6 +56,12 @@ ip6tables -nvL U60PM_GUARD6
 
 Test live public IPv4, IPv6, WebRTC, DNS and WAN packet egress. TUN status or successful VLESS log entries **do not alone establish zero leakage**.
 
+## Automatic DNS bootstrap (v2.1.4)
+
+When creating or editing a JSON profile through the controller, eligible single-hop or A-B VLESS profiles with an IPv4-resolvable first-hop hostname, one proxied HTTPS DNS server and no custom resolver/rules receive an independent AliDNS HTTPS bootstrap (223.5.5.5; TLS dns.alidns.com). The first-hop and default domain resolvers are set, the existing proxied DoH remains the ordinary DNS final, and A-B detour is preserved. Literal IPv4/IPv6 addresses, custom resolvers and unsupported chains are left unchanged. Existing profiles that bypass the controller may need to be re-saved in the JSON editor; the updater does not batch-rewrite private JSON. AAAA-only first-hop hostnames and chained IPv6 first-hop detection are not covered. Bootstrap/default-resolver queries can go directly, so this is not a zero-leak guarantee.
+
+The device operator confirmed working proxy operation after the hostname/A-B fixes. The merged main upgrade and full packages were built successfully; independent fresh-install, reboot/reconnect and comprehensive leak verification remain pending.
+
 ## Limitations and recovery
 
 - The installer refuses existing installations rather than overwriting unknown private configurations.
